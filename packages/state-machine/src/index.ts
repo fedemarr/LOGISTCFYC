@@ -1,55 +1,48 @@
 /**
  * Máquina de estados del paquete — PROMPT-MAESTRO §4.
  *
- * FASE 1 solo deja el package scaffoldeado con el contrato de estados y la
- * firma del servicio. La implementación completa de `transition()`
- * (validación de transiciones legales, permisos por rol, precondiciones,
- * escritura transaccional en `events`) es alcance de FASE 3, una vez que
- * exista el modelo de datos (FASE 2) contra el que escribir.
- *
- * Regla que esta interfaz existe para hacer cumplir (PROMPT-MAESTRO §4):
  * "Toda transición se ejecuta EXCLUSIVAMENTE a través de este servicio.
  * Ningún módulo puede hacer un UPDATE packages SET status = ... directo."
+ *
+ * Este package es agnóstico de base de datos a propósito: `transition()`
+ * recibe los `TransitionDeps` (leer el estado actual, aplicar el cambio)
+ * por inyección de dependencias. `apps/web` es quien conecta esas deps a
+ * Drizzle/Postgres dentro de una transacción real (ver
+ * `apps/web/src/lib/services/state-machine.ts`, FASE 3). Así:
+ *  - Este package se testea 100% sin base de datos.
+ *  - `apps/mobile` puede importar `validateTransition()`/`getLegalTransitions()`
+ *    para decidir qué botones mostrar, sin arrastrar un driver de Postgres.
  */
+import type { Role } from "@lastmile/shared";
+import {
+  ForbiddenTransitionError,
+  IllegalTransitionError,
+  PreconditionFailedError,
+} from "./errors";
+import { findTransitionRule, getLegalTransitions, TRANSITIONS } from "./transitions";
+import {
+  EXCEPTION_STATUSES,
+  FINAL_STATUSES,
+  isFinalStatus,
+  PACKAGE_STATUSES,
+  type PackageStatus,
+} from "./statuses";
+import type { TransitionMetadata } from "./preconditions";
 
-/** Estados del paquete, en el orden del diagrama de §4. */
-export const PACKAGE_STATUSES = [
-  "PENDIENTE_RESOLUCION",
-  "RECIBIDO",
-  "GEOCODIFICADO",
-  "ASIGNADO",
-  "CARGADO",
-  "EN_REPARTO",
-  "EN_DOMICILIO",
-  "ENTREGADO",
-  "FALLA_REPORTADA",
-  "REPROGRAMADO",
-  "DEVUELTO",
-  "EXTRAVIADO",
-  "DANIADO",
-  "CANCELADO",
-] as const;
-
-export type PackageStatus = (typeof PACKAGE_STATUSES)[number];
-
-/** Estados finales: irreversibles salvo reapertura explícita por `admin`. */
-export const FINAL_STATUSES: readonly PackageStatus[] = [
-  "ENTREGADO",
-  "DEVUELTO",
-  "EXTRAVIADO",
-  "CANCELADO",
-] as const;
-
-export function isFinalStatus(status: PackageStatus): boolean {
-  return FINAL_STATUSES.includes(status);
-}
+export { EXCEPTION_STATUSES, FINAL_STATUSES, isFinalStatus, PACKAGE_STATUSES };
+export type { PackageStatus };
+export { ForbiddenTransitionError, IllegalTransitionError, PreconditionFailedError };
+export { findTransitionRule, getLegalTransitions, TRANSITIONS };
+export type { TransitionRule } from "./transitions";
+export type { TransitionMetadata } from "./preconditions";
 
 export interface TransitionRequest {
   packageId: string;
   toStatus: PackageStatus;
   actorId: string;
-  actorRole: string;
-  metadata?: Record<string, unknown>;
+  /** Un usuario puede tener varios roles a la vez (§3). */
+  actorRoles: readonly Role[];
+  metadata?: TransitionMetadata;
 }
 
 export interface TransitionResult {
@@ -59,12 +52,90 @@ export interface TransitionResult {
   eventId: string;
 }
 
+export interface TransitionDeps {
+  /** Lee el estado actual del paquete (dentro de la transacción, con lock). */
+  getCurrentStatus(packageId: string): Promise<PackageStatus>;
+  /**
+   * Aplica el UPDATE de `packages.status` y el INSERT en `events` en la
+   * MISMA transacción (§4: "si el evento no se puede escribir, la
+   * transición se revierte"). Devuelve el id del evento escrito.
+   */
+  applyTransition(params: {
+    packageId: string;
+    fromStatus: PackageStatus;
+    toStatus: PackageStatus;
+    actorId: string;
+    actorRoles: readonly Role[];
+    metadata: TransitionMetadata;
+  }): Promise<{ eventId: string }>;
+}
+
 /**
- * Punto único de escritura de estado. Implementación real: FASE 3.
- * @throws siempre en FASE 1 — placeholder intencional, no usar todavía.
+ * Valida una transición sin ejecutarla — pura, sin I/O. Útil para decidir
+ * en la UI (web o mobile) si mostrar una acción, y es lo que usa
+ * `transition()` internamente.
  */
-export async function transition(_request: TransitionRequest): Promise<TransitionResult> {
-  throw new Error(
-    "PackageStateMachine.transition() no está implementado todavía (FASE 3).",
+export function validateTransition(
+  from: PackageStatus,
+  to: PackageStatus,
+  actorRoles: readonly Role[],
+  metadata: TransitionMetadata = {},
+):
+  | { ok: true }
+  | {
+      ok: false;
+      error: IllegalTransitionError | ForbiddenTransitionError | PreconditionFailedError;
+    } {
+  const rule = findTransitionRule(from, to);
+  if (!rule) {
+    return { ok: false, error: new IllegalTransitionError(from, to) };
+  }
+  if (!rule.allowedRoles.some((role) => actorRoles.includes(role))) {
+    return { ok: false, error: new ForbiddenTransitionError(from, to, actorRoles) };
+  }
+  if (rule.precondition) {
+    const failure = rule.precondition(metadata);
+    if (failure) {
+      return { ok: false, error: new PreconditionFailedError(from, to, failure) };
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * Punto único de escritura de estado (§4). Valida, y si es legal, delega en
+ * `deps.applyTransition()` la escritura real (UPDATE + evento, transaccional).
+ */
+export async function transition(
+  request: TransitionRequest,
+  deps: TransitionDeps,
+): Promise<TransitionResult> {
+  const fromStatus = await deps.getCurrentStatus(request.packageId);
+  const metadata = request.metadata ?? {};
+
+  const validation = validateTransition(
+    fromStatus,
+    request.toStatus,
+    request.actorRoles,
+    metadata,
   );
+  if (!validation.ok) {
+    throw validation.error;
+  }
+
+  const { eventId } = await deps.applyTransition({
+    packageId: request.packageId,
+    fromStatus,
+    toStatus: request.toStatus,
+    actorId: request.actorId,
+    actorRoles: request.actorRoles,
+    metadata,
+  });
+
+  return {
+    packageId: request.packageId,
+    fromStatus,
+    toStatus: request.toStatus,
+    eventId,
+  };
 }
