@@ -49,7 +49,7 @@ autorización:
 
 **Último commit en `main`:** revisá `git log --oneline -10` al arrancar — este documento
 puede quedar desactualizado si una sesión anterior avanzó más y no llegó a actualizarlo.
-Al día de escribir esto: `e2dcdea` — fin de FASE 2.
+Al día de escribir esto: `0fd0a52` — FASE 2 cerrada, FASE 3 **en curso** (ver abajo).
 
 **Repo:** `https://github.com/fedemarr/LOGISTCFYC` (rama `main`). El working tree debería
 estar limpio; si no lo está, mirá qué quedó a medio hacer antes de seguir.
@@ -114,6 +114,60 @@ state-machine`, `@lastmile/shared`) dentro de `drizzle.config.ts` o los archivos
    completo.** RLS protege accesos directos desde cliente (Supabase JWT), no al backend. La
    autorización real del backend es responsabilidad del middleware de FASE 3 — no asumas
    que "tiene RLS" alcanza.
+
+### FASE 3 — Core de dominio y backend 🚧 EN CURSO (commit `0fd0a52`)
+
+**Ya hecho:**
+
+- `packages/state-machine` **completo y cerrado**: tabla de transiciones fiel al diagrama de
+  §4 + matriz de permisos de §3 (`src/transitions.ts`), precondiciones (`src/preconditions.ts`
+  — evidencia+GPS para `ENTREGADO`, foto obligatoria para `FALLA_REPORTADA`, motivo para
+  estados de excepción, motivo de corrección para reabrir finales), `validateTransition()`
+  puro (sin I/O, usable desde `apps/mobile` para decidir qué botón mostrar) y `transition()`
+  que recibe `TransitionDeps` (`getCurrentStatus`/`applyTransition`) por **inyección de
+  dependencias** — el package sigue sin saber nada de Postgres. 67 tests, **100% de
+  cobertura** (`pnpm --filter @lastmile/state-machine test:coverage`), threshold de 80%
+  configurado en `vitest.config.ts` del package.
+- Dos inferencias documentadas que no estaban explícitas en el documento madre (revisar si
+  hace sentido de negocio real cuando se pueda preguntar): (a) `DANIADO` no es final en el
+  diagrama, se le dio el mismo abanico de resolución que `FALLA_REPORTADA`; (b) reabrir un
+  estado final (solo `admin`) vuelve a `GEOCODIFICADO`, el documento no dice a qué estado.
+
+**Falta (en este orden, es lo que sigue ahora mismo):**
+
+1. `apps/web/src/lib/services/state-machine.ts` — conectar `TransitionDeps` a Drizzle: abrir
+   una `db.transaction()`, leer `packages.status` con `FOR UPDATE` (lock de fila, evita
+   condiciones de carrera entre dos transiciones concurrentes del mismo paquete), hacer el
+   `UPDATE packages SET status = ...` y llamar a `select public.log_event(...)` (la función
+   `SECURITY DEFINER` de la migración `0001`) — todo dentro de la misma transacción. Si el
+   evento falla, todo se revierte (ya lo garantiza la transacción de Postgres).
+2. `AppError` (clase de error de dominio con `code`/`message`/`httpStatus`) + el envoltorio
+   de respuesta estándar `{ success, data, meta }` / `{ success, error: { code, message } }`
+   — probablemente en `apps/web/src/lib/api/`.
+3. Logger estructurado (nada de `console.log` fuera de los scripts de CLI ya exceptuados en
+   `apps/web/eslint.config.mjs`) — evaluar `pino` (liviano, funciona bien en Vercel) vs. algo
+   casero mínimo; no hace falta un servicio externo todavía, eso es Sentry en FASE 13.
+4. Auth: middleware que valida la sesión de Supabase y resuelve los roles del usuario
+   (`user_roles`) antes de dejar pasar una request — **esto es lo que realmente autoriza al
+   backend**, no RLS (ver gotcha #5). Un buen lugar: `apps/web/src/middleware.ts` (Next.js
+   middleware) + un helper `requireRole(...)` para usar dentro de cada Route Handler.
+5. Zod: un helper genérico para validar `body`/`query` en los Route Handlers y devolver un
+   `AppError` de validación bien formado si falla.
+6. Al menos un Route Handler real de punta a punta (ej. `GET /api/packages` con paginación,
+   o `POST /api/packages/:id/transition`) como **patrón de referencia** — no hace falta
+   CRUD completo de todos los módulos en esta fase, pero sí que el patrón quede probado y
+   documentado para que las fases siguientes lo repliquen sin reinventarlo.
+7. Rate limiting — sin Redis (regla del documento madre, §5). Evaluar una tabla de Postgres
+   simple (`rate_limits` o similar) dado que ya se paga la conexión a Postgres en cada
+   request de todos modos.
+8. `docs/API.md` documentando el patrón (respuesta estándar, cómo se valida, cómo se
+   autoriza, paginación, rate limiting) y los endpoints que existan hasta acá.
+9. Cerrar: correr la suite completa, actualizar esta sección a "✅", commit + push.
+
+**Antes de escribir Route Handlers:** confirmar en Vercel (ver nota de la sección 3 más
+arriba) que las funciones serverless se sirven bien con la config actual de `vercel.json` —
+si no, es el momento de pedirle a Fede que mueva el Root Directory a `apps/web` desde el
+dashboard, porque a partir de acá ya importa de verdad.
 
 ## 4. Credenciales — dónde están, qué falta
 
