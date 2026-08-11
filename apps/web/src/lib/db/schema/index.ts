@@ -15,4 +15,5 @@ export * from "./incidents";
 export * from "./support";
 export * from "./gps";
 export * from "./events";
+export * from "./rate_limits";
 export * from "./sync";

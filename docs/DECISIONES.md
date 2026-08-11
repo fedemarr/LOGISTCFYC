@@ -116,3 +116,15 @@ Registro de cada decisión técnica y su porqué. Formato: **Decisión → Conte
 **Decisión:** `supabase/seed.sql` queda como puntero/documentación; el seed real corre con `pnpm db:seed` desde `apps/web`.
 **Contexto:** crear los 4 usuarios de prueba (§14, FASE 2) necesita `supabase.auth.admin.createUser()` — la API de administración de Supabase Auth, no algo expresable en SQL plano. Un `.sql` no puede crear un usuario de `auth.users` con contraseña utilizable para loguearse.
 **Consecuencias:** mismo patrón que ADR-013 (Drizzle vive en `apps/web`, no en `supabase/`) — `supabase/` queda para lo que es genuinamente SQL portable (migraciones), y la orquestación que necesita llamar APIs vive donde ya está el resto del backend.
+
+## ADR-019 — La máquina de estados es la única escritora de `packages.status` (single-writer)
+
+**Decisión:** ningún módulo escribe `packages.status` directamente. Todo cambio de estado pasa por `runPackageTransition` (el service de `apps/web`) que: valida roles → calcula la transición con el package `@lastmile/state-machine` → ejecuta UPDATE de `packages` + INSERT de `events` **en la misma transacción**. Los únicos writes de status fuera de ella son el seed (estado inicial) y datos de carga masiva a futuro (FASE 9).
+**Contexto:** FASE 3 definió el middleware de permisos. Para que ese middleware sea la autorización real (ADR-015: el backend bypasea RLS), cada mutación debe pasar por un punto único auditable; si cada handler pudiera hacer `UPDATE packages SET status=...`, los permisos de transición no se podrían garantizar.
+**Consecuencias:** todo endpoint de mutación de status escribe a través del servicio; el dominio sigue viviendo en `packages/state-machine` (reglas + excepciones `IllegalTransitionError`/`ForbiddenTransitionError`/`PreconditionFailedError`) y `apps/web` solo lo orquesta contra la base. Los tests de integración de `state-machine.test.ts` prueban el rollback real (estado y evento se revierten juntos cuando la transición falla).
+
+## ADR-020 — `events` es append-only también desde el backend: trigger + convención de código
+
+**Decisión:** la inmutabilidad de `events` se garantiza con la combinación de: (a) el trigger `events_forbid_delete` sobre la tabla (revienta ante cualquier UPDATE/DELETE **sin importar el rol**, ver ADR-016) y (b) la convención de que **ningún módulo de la app emite UPDATE/DELETE contra `events`** — se audita en code review. El único `DELETE FROM events` del código vive en tests de integración, y corre con el trigger deshabilitado a propósito (`ALTER TABLE ... DISABLE TRIGGER`) para poder limpiar la base de prueba.
+**Contexto:** en FASE 3 el test de integración de la máquina de estados confirmó que el trigger realmente bloquea el borrado; si el test intentara borrar eventos sin deshabilitarlo primero, fallaría.
+**Consecuencias:** la limpieza de datos de prueba requiere deshabilitar el trigger en `afterAll`; hay que re-habilitarlo siempre, aunque el test falle (se hace en el mismo `finally`/`afterAll`, nunca con `try/catch` que lo deje desactivado).

@@ -1,6 +1,12 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  resolve: {
+    // Espejo del path alias `@/* -> ./src/*` de tsconfig.json (que
+    // Next.js resuelve solo pero Vitest no conoce).
+    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+  },
   test: {
     environment: "node",
     // Node en worker_threads (el pool "threads" por defecto) tiene un bug

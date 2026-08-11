@@ -29,6 +29,14 @@ const eslintConfig = [
     },
   },
   {
+    // Scripts de CLI para humanos (build local, smoke test de la API) — igual
+    // que arriba, el console.log ES la interfaz.
+    files: ["scripts/**"],
+    rules: {
+      "no-console": "off",
+    },
+  },
+  {
     ignores: [
       "node_modules/**",
       ".next/**",
