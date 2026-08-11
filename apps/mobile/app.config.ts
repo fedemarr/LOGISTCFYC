@@ -10,7 +10,7 @@ import type { ExpoConfig } from "expo/config";
  * EAS. Ver docs/DECISIONES.md.
  */
 const config: ExpoConfig = {
-  name: "Lastmile",
+  name: "FYC",
   slug: "lastmile-mobile",
   version: "0.1.0",
   orientation: "portrait",

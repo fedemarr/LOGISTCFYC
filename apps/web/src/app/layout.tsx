@@ -8,7 +8,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Lastmile — Panel de Operaciones",
+  title: "FYC — Panel de Operaciones",
   description: "Panel administrativo del sistema de logística de última milla",
 };
 

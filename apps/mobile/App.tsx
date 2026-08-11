@@ -4,10 +4,8 @@ import { StyleSheet, Text, View } from "react-native";
 export default function App() {
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Lastmile</Text>
-      <Text style={styles.subtitle}>
-        App del chofer/depósito — FASE 1 (scaffolding). Todavía sin funcionalidad.
-      </Text>
+      <Text style={styles.title}>FYC</Text>
+      <Text style={styles.subtitle}>App del chofer/depósito.</Text>
       <StatusBar style="auto" />
     </View>
   );

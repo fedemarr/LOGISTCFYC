@@ -24,7 +24,7 @@ import { GBA_LOCALITIES, GBA_STREET_NAMES } from "./gba-addresses";
 import { syntheticRecipientName } from "./names";
 
 const SEED_PASSWORD = "Lastmile123!";
-const ORG_NAME = "Lastmile Demo";
+const ORG_NAME = "FYC Demo";
 
 const SEED_USERS = [
   { email: "admin@lastmile.demo", fullName: "Admin Demo", role: "admin" as const },
