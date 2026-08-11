@@ -1,0 +1,23 @@
+{
+  "name": "@lastmile/geo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Haversine, clustering geográfico y normalización de direcciones (PROMPT-MAESTRO §8)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint . --max-warnings 0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@lastmile/config": "workspace:*",
+    "eslint": "^9.18.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

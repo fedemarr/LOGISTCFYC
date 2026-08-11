@@ -1,0 +1,26 @@
+{
+  "name": "@lastmile/state-machine",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Máquina de estados del paquete (PROMPT-MAESTRO §4). Usada por apps/web y apps/mobile.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint . --max-warnings 0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@lastmile/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@lastmile/config": "workspace:*",
+    "eslint": "^9.18.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

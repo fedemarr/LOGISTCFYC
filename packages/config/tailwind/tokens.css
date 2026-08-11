@@ -1,0 +1,67 @@
+/*
+ * Tokens de diseño compartidos — PROMPT-MAESTRO §13.
+ * Tailwind v4 es CSS-first: esto reemplaza al `tailwind.config.js` de v3.
+ * Los consumidores hacen `@import "@lastmile/config/tailwind/tokens.css";`
+ * desde su propio `globals.css`, antes de `@import "tailwindcss";` no,
+ * DESPUÉS — ver apps/web/src/app/globals.css para el orden correcto.
+ */
+
+:root {
+  /* Neutros sofisticados — nunca negro puro ni blanco puro */
+  --bg: #fafaf9;
+  --surface: #ffffff;
+  --border: #e7e5e4;
+  --text: #1c1917;
+  --text-muted: #78716c;
+
+  /* Acento */
+  --primary: #2563eb;
+
+  /* Estados — semántica fija en todo el producto */
+  --pending: #78716c;
+  --in-progress: #2563eb;
+  --success: #16a34a;
+  --warning: #ea580c;
+  --danger: #dc2626;
+  --info: #7c3aed;
+
+  /* Radios */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  /* Transiciones */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Dark mode (obligatorio en la app del chofer; el panel web lo hereda) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c0a09;
+    --surface: #1c1917;
+    --border: #292524;
+    --text: #fafaf9;
+    --text-muted: #a8a29e;
+  }
+}
+
+@theme {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-primary: var(--primary);
+
+  --color-status-pending: var(--pending);
+  --color-status-in-progress: var(--in-progress);
+  --color-status-success: var(--success);
+  --color-status-warning: var(--warning);
+  --color-status-danger: var(--danger);
+  --color-status-info: var(--info);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+}

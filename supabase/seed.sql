@@ -1,0 +1,3 @@
+-- Seed de datos de prueba (FASE 2): 1 org, 4 usuarios (uno por rol), 3 vehículos,
+-- 5 contenedores, 120 paquetes con direcciones reales del GBA.
+-- Ver PROMPT-MAESTRO-CLAUDE-CODE.md §14 (FASE 2).

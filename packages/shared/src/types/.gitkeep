@@ -1,0 +1,2 @@
+# Tipos de dominio (Package, Route, Delivery, Incident, ...) se agregan en
+# FASE 2 (modelo de datos) y FASE 3 (backend), derivados del esquema Drizzle.

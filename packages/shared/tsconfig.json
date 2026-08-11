@@ -1,0 +1,10 @@
+{
+  "extends": "@lastmile/config/typescript/base",
+  "compilerOptions": {
+    "composite": false,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}

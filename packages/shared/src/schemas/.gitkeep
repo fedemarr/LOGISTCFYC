@@ -1,0 +1,2 @@
+# Esquemas Zod de validación de inputs se agregan en FASE 3 (backend),
+# uno por endpoint/entidad, una vez que el modelo de datos exista (FASE 2).

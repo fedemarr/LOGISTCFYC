@@ -1,0 +1,22 @@
+{
+  "name": "@lastmile/config",
+  "private": true,
+  "version": "0.1.0",
+  "description": "ESLint, TypeScript y Tailwind config compartidos entre apps y packages",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    "./eslint/base": "./eslint/base.js",
+    "./eslint/react-native": "./eslint/react-native.js",
+    "./typescript/base": "./typescript/base.json",
+    "./typescript/nextjs": "./typescript/nextjs.json",
+    "./typescript/react-native": "./typescript/react-native.json",
+    "./tailwind/tokens.css": "./tailwind/tokens.css"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "eslint-config-expo": "^57.0.1",
+    "eslint-config-prettier": "^9.1.0",
+    "typescript-eslint": "^8.19.1"
+  }
+}

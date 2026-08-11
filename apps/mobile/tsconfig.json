@@ -1,0 +1,10 @@
+{
+  "extends": "@lastmile/config/typescript/react-native",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules"]
+}
