@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "Sistema de logística de última milla — panel web + app móvil",
+  "type": "module",
   "packageManager": "pnpm@11.5.0",
   "engines": {
     "node": ">=20.0.0"
