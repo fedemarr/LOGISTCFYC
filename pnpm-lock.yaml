@@ -35,7 +35,7 @@ importers:
 
   apps/mobile:
     dependencies:
-      '@lastmile/shared':
+      '@fyc/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       expo:
@@ -54,7 +54,7 @@ importers:
         specifier: 0.86.2
         version: 0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.3)
     devDependencies:
-      '@lastmile/config':
+      '@fyc/config':
         specifier: workspace:*
         version: link:../../packages/config
       '@types/react':
@@ -72,10 +72,10 @@ importers:
       '@base-ui/react':
         specifier: ^1.7.0
         version: 1.7.0(@types/react@19.2.18)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
-      '@lastmile/shared':
+      '@fyc/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      '@lastmile/state-machine':
+      '@fyc/state-machine':
         specifier: workspace:*
         version: link:../../packages/state-machine
       '@supabase/supabase-js':
@@ -121,7 +121,7 @@ importers:
       '@eslint/eslintrc':
         specifier: ^3
         version: 3.3.6
-      '@lastmile/config':
+      '@fyc/config':
         specifier: workspace:*
         version: link:../../packages/config
       '@tailwindcss/postcss':
@@ -184,7 +184,7 @@ importers:
 
   packages/geo:
     devDependencies:
-      '@lastmile/config':
+      '@fyc/config':
         specifier: workspace:*
         version: link:../config
       eslint:
@@ -203,7 +203,7 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
-      '@lastmile/config':
+      '@fyc/config':
         specifier: workspace:*
         version: link:../config
       '@types/node':
@@ -221,11 +221,11 @@ importers:
 
   packages/state-machine:
     dependencies:
-      '@lastmile/shared':
+      '@fyc/shared':
         specifier: workspace:*
         version: link:../shared
     devDependencies:
-      '@lastmile/config':
+      '@fyc/config':
         specifier: workspace:*
         version: link:../config
       '@vitest/coverage-v8':

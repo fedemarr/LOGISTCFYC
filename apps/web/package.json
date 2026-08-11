@@ -1,5 +1,5 @@
 {
-  "name": "@lastmile/web",
+  "name": "@fyc/web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -19,8 +19,8 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
-    "@lastmile/shared": "workspace:*",
-    "@lastmile/state-machine": "workspace:*",
+    "@fyc/shared": "workspace:*",
+    "@fyc/state-machine": "workspace:*",
     "@supabase/supabase-js": "^2.112.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -37,7 +37,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
-    "@lastmile/config": "workspace:*",
+    "@fyc/config": "workspace:*",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/pg": "^8.21.0",

@@ -9,7 +9,7 @@
 ## 1. Quién sos y qué es esto
 
 Sos el equipo de desarrollo completo (Software Architect, Backend, Frontend, DB, Mobile,
-Security, DevOps, UX) de **Lastmile**, un sistema de logística de última milla para AMBA,
+Security, DevOps, UX) de **FYC**, un sistema de logística de última milla para AMBA,
 Argentina. La especificación completa — contexto de negocio, arquitectura, modelo de datos,
 reglas de UX, las 14 fases de desarrollo — está en **`PROMPT-MAESTRO-CLAUDE-CODE.md`** (raíz
 del repo). **Leelo completo antes de tocar código si no lo tenés ya en contexto.** Todo lo
@@ -68,7 +68,7 @@ endpoint de prueba apenas exista).
 
 Turborepo + pnpm workspaces. `apps/web` (Next.js 15.5.23 + React 19, TS strict, Tailwind v4,
 shadcn/ui). `apps/mobile` (Expo SDK 57, Development Build con `expo-dev-client`, EAS
-configurado — placeholder `com.lastmile.mobile` como bundle id, confirmar el real antes de
+configurado — placeholder `com.fyc.mobile` como bundle id, confirmar el real antes de
 un build de distribución). `packages/shared` (roles), `packages/state-machine` (contrato de
 estados, sin implementar — es FASE 3), `packages/geo` (haversine implementado, clustering
 sin implementar — es FASE 6), `packages/config` (eslint/tsconfig/tailwind compartidos).
@@ -84,7 +84,7 @@ enums de §7). 4 migraciones SQL aplicadas contra Supabase real en
 la conexión de admin), políticas RLS completas por `org_id`/rol en las 21 tablas, hardening
 de la tabla interna de tracking de migraciones. Seed idempotente (`pnpm db:seed` desde
 `apps/web`): 1 org, 4 usuarios reales de Supabase Auth (uno por rol, contraseña
-`Lastmile123!`, ver `apps/web/src/lib/db/seed/index.ts`), 3 vehículos, 5 contenedores, 1
+`FYC123!`, ver `apps/web/src/lib/db/seed/index.ts`), 3 vehículos, 5 contenedores, 1
 cliente, 1 operación, ~56 direcciones del GBA, 120 paquetes. Tests de integración contra la
 base real (`pnpm test` desde `apps/web`) verifican que un driver no ve paquetes/rutas de
 otro chofer y que nadie puede hacer UPDATE/DELETE sobre `events`. `docs/MODELO-DATOS.md`
@@ -99,8 +99,8 @@ ADR-013 a ADR-018, léelos si algo de esto te vuelve a pasar):**
    Pooler** (`aws-0-sa-east-1.pooler.supabase.com:5432`, usuario
    `postgres.xdhjxecrozcozcstndbr`), que es IPv4. Si alguna vez ves errores de DNS al correr
    `db:migrate`/`db:seed`/`pnpm test`, es esto — no re-investigues desde cero.
-2. **`drizzle-kit generate` no puede importar paquetes del workspace** (`@lastmile/
-state-machine`, `@lastmile/shared`) dentro de `drizzle.config.ts` o los archivos de
+2. **`drizzle-kit generate` no puede importar paquetes del workspace** (`@fyc/
+state-machine`, `@fyc/shared`) dentro de `drizzle.config.ts` o los archivos de
    schema — el import se resuelve a `undefined` en tiempo de generate (aunque funciona
    perfecto en Next.js/tsx/vitest). Por eso `enums.ts` tiene mirrors literales de
    `PACKAGE_STATUSES`/`ROLES` con un test de sincronización
@@ -126,7 +126,7 @@ state-machine`, `@lastmile/shared`) dentro de `drizzle.config.ts` o los archivos
   puro (sin I/O, usable desde `apps/mobile` para decidir qué botón mostrar) y `transition()`
   que recibe `TransitionDeps` (`getCurrentStatus`/`applyTransition`) por **inyección de
   dependencias** — el package sigue sin saber nada de Postgres. 67 tests, **100% de
-  cobertura** (`pnpm --filter @lastmile/state-machine test:coverage`), threshold de 80%
+  cobertura** (`pnpm --filter @fyc/state-machine test:coverage`), threshold de 80%
   configurado en `vitest.config.ts` del package.
 - Dos inferencias documentadas que no estaban explícitas en el documento madre (revisar si
   hace sentido de negocio real cuando se pueda preguntar): (a) `DANIADO` no es final en el

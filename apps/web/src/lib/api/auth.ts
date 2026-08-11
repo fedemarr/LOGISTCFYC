@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import type { Role } from "@lastmile/shared";
+import type { Role } from "@fyc/shared";
 import { db } from "@/lib/db";
 import { users, userRoles } from "@/lib/db/schema";
 import { Errors } from "./errors";
@@ -11,14 +11,14 @@ import { Errors } from "./errors";
  * directos del cliente (JWT de Supabase), NO al backend. Esta es la
  * autorización real para los Route Handlers.
  *
- * `requireUser`/`requireRole` confían en el header `x-lastmile-user-id`
+ * `requireUser`/`requireRole` confían en el header `x-fyc-user-id`
  * que setea `apps/web/src/middleware.ts` después de verificar la sesión de
  * Supabase (el middleware SIEMPRE sobrescribe el header que manda el
  * cliente). Si el middleware no corre (ruta fuera del matcher), no hay
  * header → 401. Frontera de confianza documentada en docs/API.md.
  */
 
-const USER_ID_HEADER = "x-lastmile-user-id";
+const USER_ID_HEADER = "x-fyc-user-id";
 
 export interface AuthContext {
   userId: string;

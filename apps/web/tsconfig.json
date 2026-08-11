@@ -1,5 +1,5 @@
 {
-  "extends": "@lastmile/config/typescript/nextjs",
+  "extends": "@fyc/config/typescript/nextjs",
   "compilerOptions": {
     "target": "ES2017",
     "paths": {

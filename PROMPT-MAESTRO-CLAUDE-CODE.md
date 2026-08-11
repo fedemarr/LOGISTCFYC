@@ -318,7 +318,7 @@ MLKit Text Recognition (on-device) → OCR de etiquetas
 ## 6. ESTRUCTURA DEL PROYECTO
 
 ```
-lastmile/
+fyc/
 ├── apps/
 │   ├── web/                          # Next.js — panel administrativo
 │   │   └── src/

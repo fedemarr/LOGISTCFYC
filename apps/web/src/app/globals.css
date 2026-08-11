@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import "@lastmile/config/tailwind/tokens.css";
+@import "@fyc/config/tailwind/tokens.css";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
@@ -49,7 +49,7 @@
 
 /*
  * Tokens de shadcn/ui remapeados a la paleta de PROMPT-MAESTRO §13
- * (definida en @lastmile/config/tailwind/tokens.css) en vez de la escala
+ * (definida en @fyc/config/tailwind/tokens.css) en vez de la escala
  * gris oklch por defecto. `card`/`popover`/`input`/`ring` no tienen
  * equivalente en §13 todavía: se derivan de forma razonable y se ajustan
  * en FASE 4 ("Design system aplicado") si hace falta.

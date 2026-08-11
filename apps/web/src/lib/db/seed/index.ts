@@ -23,22 +23,22 @@ import {
 import { GBA_LOCALITIES, GBA_STREET_NAMES } from "./gba-addresses";
 import { syntheticRecipientName } from "./names";
 
-const SEED_PASSWORD = "Lastmile123!";
+const SEED_PASSWORD = "FYC123!";
 const ORG_NAME = "FYC Demo";
 
 const SEED_USERS = [
-  { email: "admin@lastmile.demo", fullName: "Admin Demo", role: "admin" as const },
+  { email: "admin@fyc.demo", fullName: "Admin Demo", role: "admin" as const },
   {
-    email: "operaciones@lastmile.demo",
+    email: "operaciones@fyc.demo",
     fullName: "Operaciones Demo",
     role: "dispatcher" as const,
   },
   {
-    email: "deposito@lastmile.demo",
+    email: "deposito@fyc.demo",
     fullName: "Depósito Demo",
     role: "warehouse" as const,
   },
-  { email: "chofer@lastmile.demo", fullName: "Chofer Demo", role: "driver" as const },
+  { email: "chofer@fyc.demo", fullName: "Chofer Demo", role: "driver" as const },
 ];
 
 function mustExist<T>(value: T | undefined, what: string): T {

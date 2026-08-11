@@ -5,7 +5,7 @@ import {
   type TransitionMetadata,
   type TransitionRequest,
   type TransitionResult,
-} from "@lastmile/state-machine";
+} from "@fyc/state-machine";
 import { and, eq, sql } from "drizzle-orm";
 import { Errors } from "@/lib/api/errors";
 import { db } from "@/lib/db";

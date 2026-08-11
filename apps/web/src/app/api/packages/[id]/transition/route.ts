@@ -1,4 +1,4 @@
-import { PACKAGE_STATUSES } from "@lastmile/state-machine";
+import { PACKAGE_STATUSES } from "@fyc/state-machine";
 import { z } from "zod";
 import {
   consumeRateLimit,

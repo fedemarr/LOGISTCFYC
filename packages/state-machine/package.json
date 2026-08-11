@@ -1,5 +1,5 @@
 {
-  "name": "@lastmile/state-machine",
+  "name": "@fyc/state-machine",
   "private": true,
   "version": "0.1.0",
   "description": "Máquina de estados del paquete (PROMPT-MAESTRO §4). Usada por apps/web y apps/mobile.",
@@ -16,10 +16,10 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@lastmile/shared": "workspace:*"
+    "@fyc/shared": "workspace:*"
   },
   "devDependencies": {
-    "@lastmile/config": "workspace:*",
+    "@fyc/config": "workspace:*",
     "@vitest/coverage-v8": "2.1.9",
     "eslint": "^9.18.0",
     "typescript": "^5.7.3",

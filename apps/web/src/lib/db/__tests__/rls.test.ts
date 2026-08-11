@@ -47,8 +47,8 @@ async function signInAs(email: string): Promise<SupabaseClient> {
 describe("RLS (integración contra Supabase real)", () => {
   const runId = randomUUID().slice(0, 8);
   const orgName = `RLS Test Org ${runId}`;
-  const driverAEmail = `rls-driver-a-${runId}@lastmile.test`;
-  const driverBEmail = `rls-driver-b-${runId}@lastmile.test`;
+  const driverAEmail = `rls-driver-a-${runId}@fyc.test`;
+  const driverBEmail = `rls-driver-b-${runId}@fyc.test`;
 
   let orgId: string;
   let driverAId: string;

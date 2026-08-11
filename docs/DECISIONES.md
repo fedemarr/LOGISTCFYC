@@ -34,23 +34,23 @@ Registro de cada decisión técnica y su porqué. Formato: **Decisión → Conte
 
 **Decisión:** `apps/web` usa Tailwind v4; los tokens de diseño de PROMPT-MAESTRO §13 viven en `packages/config/tailwind/tokens.css` (bloque `@theme`), no en un `tailwind.config.js` exportando un objeto JS.
 **Contexto:** el documento no fija versión de Tailwind. `create-next-app@15` genera el template `app-tw` con v4 por defecto a esta fecha. v4 es CSS-first: no hay `tailwind.config.js` central para un preset JS compartido de la forma clásica.
-**Consecuencias:** el "config compartido" de Tailwind pasa de ser un preset JS a ser un archivo CSS importado (`@import "@lastmile/config/tailwind/tokens.css"`). shadcn/ui (FASE 4) soporta v4 sin problema. Si en algún momento se necesita retroceder a v3 (p. ej. por un plugin sin soporte v4), es una decisión a tomar explícitamente, no un default.
+**Consecuencias:** el "config compartido" de Tailwind pasa de ser un preset JS a ser un archivo CSS importado (`@import "@fyc/config/tailwind/tokens.css"`). shadcn/ui (FASE 4) soporta v4 sin problema. Si en algún momento se necesita retroceder a v3 (p. ej. por un plugin sin soporte v4), es una decisión a tomar explícitamente, no un default.
 
 ## ADR-006 — `roles.ts` vive en `packages/shared`, no en `apps/web/src/lib`
 
 **Decisión:** la fuente única de los roles y sus labels (`ROLES`, `ROLE_LABELS`) vive en `packages/shared/src/constants/roles.ts`.
 **Contexto:** PROMPT-MAESTRO §3 dice literalmente que el archivo es `src/lib/constants/roles.ts`, pero también dice que el label debe estar "en un solo lugar" y que un usuario puede tener varios roles "desde el día 1" — y tanto la app móvil como el panel necesitan mostrar esos labels (p. ej. la app del chofer puede mostrar "asignado por Operaciones").
-**Consecuencias:** se resuelve la tensión priorizando "un solo lugar" sobre la ruta literal del archivo. `apps/web` importa `ROLE_LABELS` de `@lastmile/shared` en vez de duplicarlo. Si el dueño del producto prefiere que viva físicamente en `apps/web/src/lib`, es un cambio de una línea de import — avisar si se prefiere así.
+**Consecuencias:** se resuelve la tensión priorizando "un solo lugar" sobre la ruta literal del archivo. `apps/web` importa `ROLE_LABELS` de `@fyc/shared` en vez de duplicarlo. Si el dueño del producto prefiere que viva físicamente en `apps/web/src/lib`, es un cambio de una línea de import — avisar si se prefiere así.
 
 ## ADR-007 — Packages de dominio (`state-machine`, `geo`) scaffoldeados como placeholders, no implementados
 
 **Decisión:** en FASE 1, `packages/state-machine` y `packages/geo` solo definen contratos (tipos, firma de funciones) que lanzan error explícito ("no implementado todavía — FASE X") en vez de lógica real, salvo utilidades puras sin decisiones de negocio (`haversineDistanceMeters`).
 **Contexto:** regla §0.1 — "NO CONSTRUYAS TODO DE UNA SOLA VEZ". La máquina de estados completa depende del modelo de datos (FASE 2) y la lógica de permisos (FASE 3); el clustering/secuenciación depende de tener paquetes y direcciones reales que rutear (FASE 6).
-**Consecuencias:** los packages ya tienen su forma final de import (`@lastmile/state-machine`, `@lastmile/geo`) y tests que documentan la intención, así que las fases siguientes no tocan la estructura, solo llenan la implementación.
+**Consecuencias:** los packages ya tienen su forma final de import (`@fyc/state-machine`, `@fyc/geo`) y tests que documentan la intención, así que las fases siguientes no tocan la estructura, solo llenan la implementación.
 
 ## ADR-008 — Bundle ID / package name de la app móvil son placeholder
 
-**Decisión:** `app.config.ts` usa `com.lastmile.mobile` como `ios.bundleIdentifier` y `android.package`.
+**Decisión:** `app.config.ts` usa `com.fyc.mobile` como `ios.bundleIdentifier` y `android.package`.
 **Contexto:** no está definido el nombre final de marca/dominio. El package name de Android es **inmutable** una vez publicado en Play Store.
 **Pendiente:** confirmar el nombre real antes del primer build de EAS que se vaya a distribuir (no bloquea builds de desarrollo interno).
 
@@ -73,9 +73,9 @@ Registro de cada decisión técnica y su porqué. Formato: **Decisión → Conte
 
 ## ADR-012 — Vercel: Root Directory `apps/web` (setting del proyecto), framework `nextjs`
 
-**Decisión:** el proyecto de Vercel (`fmcodes-projects/web`) se configuró con Root Directory `apps/web` y framework `nextjs`, y `vercel.json` define `framework: "nextjs"`, `installCommand: pnpm install --frozen-lockfile` y `buildCommand: pnpm --filter @lastmile/web build`. El setup original (Root Directory `.` + `framework: null` + `outputDirectory: apps/web/.next`) **NUNCA sirvió el app**: `.next` es el directorio de build de Next (artefactos de servidor), no un output estático servible — con `framework: null` + `outputDirectory`, Vercel lo sirve como archivos estáticos y devuelve 404 (verificado en el deploy de FASE 3: root y `/api/*` → 404 de plataforma con `X-Vercel-Error`). El build "funcionaba" pero el deploy estaba vacío de contenido útil.
+**Decisión:** el proyecto de Vercel (`fmcodes-projects/web`) se configuró con Root Directory `apps/web` y framework `nextjs`, y `vercel.json` define `framework: "nextjs"`, `installCommand: pnpm install --frozen-lockfile` y `buildCommand: pnpm --filter @fyc/web build`. El setup original (Root Directory `.` + `framework: null` + `outputDirectory: apps/web/.next`) **NUNCA sirvió el app**: `.next` es el directorio de build de Next (artefactos de servidor), no un output estático servible — con `framework: null` + `outputDirectory`, Vercel lo sirve como archivos estáticos y devuelve 404 (verificado en el deploy de FASE 3: root y `/api/*` → 404 de plataforma con `X-Vercel-Error`). El build "funcionaba" pero el deploy estaba vacío de contenido útil.
 **Contexto (corrección, FASE 3):** `rootDirectory` **no existe como propiedad de `vercel.json`** (el schema lo rechaza: "should NOT have additional property `rootDirectory`"), contrario a lo que intenté documentar primero — es un setting del proyecto que se setea por API (`PATCH /v9/projects/{id}` con `{ "rootDirectory": "apps/web" }`) o desde el dashboard. Con Root Directory `apps/web` + framework `nextjs`, Vercel detecta Next.js en el app, corre `pnpm install` en la raíz del monorepo (detección automática de workspace pnpm) y el Next Builder genera el output serverless correcto en `/vercel/output` (rutas API, middleware y páginas).
-**Consecuencias:** `vercel.json` queda `{ "framework": "nextjs", "installCommand": "pnpm install --frozen-lockfile", "buildCommand": "pnpm --filter @lastmile/web build" }` (sin `outputDirectory` ni `rootDirectory`); el Root Directory del proyecto es `apps/web`. El buildCommand corre con cwd = `apps/web` y el filter del workspace se resuelve igual.
+**Consecuencias:** `vercel.json` queda `{ "framework": "nextjs", "installCommand": "pnpm install --frozen-lockfile", "buildCommand": "pnpm --filter @fyc/web build" }` (sin `outputDirectory` ni `rootDirectory`); el Root Directory del proyecto es `apps/web`. El buildCommand corre con cwd = `apps/web` y el filter del workspace se resuelve igual.
 
 ## ADR-013 — Dónde vive el schema de base de datos, y por qué no en `packages/`
 
@@ -83,7 +83,7 @@ Registro de cada decisión técnica y su porqué. Formato: **Decisión → Conte
 **Contexto:** `packages/shared` es consumido por `apps/mobile` también, y `pg` (el driver de Postgres) es una dependencia de Node que no funciona en React Native/Expo — meterlo en un package compartido rompería el bundling de Metro. Solo `apps/web` (el backend monolito modular, §5) habla directo con Postgres; `apps/mobile` habla con Supabase vía su SDK cliente (anon key + RLS), nunca con Drizzle.
 **Consecuencias:** las migraciones SQL sí siguen la estructura del documento (`supabase/migrations/`, configurado como `out` en `drizzle.config.ts`) aunque el _schema_ TypeScript no viva en `supabase/`. Si en el futuro un segundo servicio necesita el mismo schema (p. ej. el microservicio de OR-Tools de FASE 7 opcional), se evalúa extraerlo a un package recién ahí.
 
-## ADR-014 — Los enums de Postgres son copias literales, no imports de `@lastmile/state-machine`/`@lastmile/shared`
+## ADR-014 — Los enums de Postgres son copias literales, no imports de `@fyc/state-machine`/`@fyc/shared`
 
 **Decisión:** `apps/web/src/lib/db/schema/enums.ts` define `PACKAGE_STATUSES_MIRROR` y `ROLES_MIRROR` como arrays literales en vez de importar `PACKAGE_STATUSES`/`ROLES` de los packages compartidos.
 **Contexto:** `drizzle-kit generate` bundlea `drizzle.config.ts` con su propio loader (basado en `@esbuild-kit/*`, dependencias marcadas deprecated). Ese loader no interopera bien con paquetes del workspace pnpm cuyo `exports` apunta a un archivo `.ts` fuente: la importación se resuelve a `undefined` en tiempo de `drizzle-kit generate` (con `tsx`, `vitest` o Next.js el mismo import funciona perfecto — es específico del bundler de `drizzle-kit`).
@@ -118,7 +118,7 @@ Registro de cada decisión técnica y su porqué. Formato: **Decisión → Conte
 
 ## ADR-019 — La máquina de estados es la única escritora de `packages.status` (single-writer)
 
-**Decisión:** ningún módulo escribe `packages.status` directamente. Todo cambio de estado pasa por `runPackageTransition` (el service de `apps/web`) que: valida roles → calcula la transición con el package `@lastmile/state-machine` → ejecuta UPDATE de `packages` + INSERT de `events` **en la misma transacción**. Los únicos writes de status fuera de ella son el seed (estado inicial) y datos de carga masiva a futuro (FASE 9).
+**Decisión:** ningún módulo escribe `packages.status` directamente. Todo cambio de estado pasa por `runPackageTransition` (el service de `apps/web`) que: valida roles → calcula la transición con el package `@fyc/state-machine` → ejecuta UPDATE de `packages` + INSERT de `events` **en la misma transacción**. Los únicos writes de status fuera de ella son el seed (estado inicial) y datos de carga masiva a futuro (FASE 9).
 **Contexto:** FASE 3 definió el middleware de permisos. Para que ese middleware sea la autorización real (ADR-015: el backend bypasea RLS), cada mutación debe pasar por un punto único auditable; si cada handler pudiera hacer `UPDATE packages SET status=...`, los permisos de transición no se podrían garantizar.
 **Consecuencias:** todo endpoint de mutación de status escribe a través del servicio; el dominio sigue viviendo en `packages/state-machine` (reglas + excepciones `IllegalTransitionError`/`ForbiddenTransitionError`/`PreconditionFailedError`) y `apps/web` solo lo orquesta contra la base. Los tests de integración de `state-machine.test.ts` prueban el rollback real (estado y evento se revierten juntos cuando la transición falla).
 

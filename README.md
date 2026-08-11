@@ -1,4 +1,4 @@
-# Lastmile — Sistema de logística de última milla
+# FYC — Sistema de logística de última milla
 
 Panel administrativo (web) + app del chofer/depósito (mobile) para una operación de
 última milla en el Área Metropolitana de Buenos Aires. Ver
@@ -45,8 +45,8 @@ cp .env.example .env   # completar credenciales reales, nunca commitear .env
 
 ```bash
 pnpm dev           # levanta apps/web (Next.js) y apps/mobile (Expo) en paralelo
-pnpm --filter @lastmile/web dev      # solo el panel web
-pnpm --filter @lastmile/mobile dev   # solo la app móvil (requiere Development Build,
+pnpm --filter @fyc/web dev      # solo el panel web
+pnpm --filter @fyc/mobile dev   # solo la app móvil (requiere Development Build,
                                       # no funciona con la app de Expo Go)
 ```
 

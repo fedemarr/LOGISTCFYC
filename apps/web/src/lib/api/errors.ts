@@ -2,7 +2,7 @@ import {
   ForbiddenTransitionError,
   IllegalTransitionError,
   PreconditionFailedError,
-} from "@lastmile/state-machine";
+} from "@fyc/state-machine";
 
 /**
  * Error de dominio del backend — respuesta estándar del sistema

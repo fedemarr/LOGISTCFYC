@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { PACKAGE_STATUSES } from "@lastmile/state-machine";
-import { ROLES } from "@lastmile/shared";
+import { PACKAGE_STATUSES } from "@fyc/state-machine";
+import { ROLES } from "@fyc/shared";
 import { packageStatusEnum, userRoleEnum } from "../enums";
 
 /**
@@ -11,11 +11,11 @@ import { packageStatusEnum, userRoleEnum } from "../enums";
  * actualizar el mirror, esto falla en CI.
  */
 describe("enums de Postgres sincronizados con la fuente de verdad", () => {
-  it("package_status coincide con @lastmile/state-machine PACKAGE_STATUSES", () => {
+  it("package_status coincide con @fyc/state-machine PACKAGE_STATUSES", () => {
     expect(packageStatusEnum.enumValues).toEqual(PACKAGE_STATUSES);
   });
 
-  it("user_role coincide con @lastmile/shared ROLES", () => {
+  it("user_role coincide con @fyc/shared ROLES", () => {
     expect(userRoleEnum.enumValues).toEqual(ROLES);
   });
 });

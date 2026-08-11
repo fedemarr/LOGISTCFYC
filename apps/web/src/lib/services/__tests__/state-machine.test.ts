@@ -14,7 +14,7 @@ import {
   ForbiddenTransitionError,
   IllegalTransitionError,
   PreconditionFailedError,
-} from "@lastmile/state-machine";
+} from "@fyc/state-machine";
 import { createClient } from "@supabase/supabase-js";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";

@@ -2,7 +2,7 @@ import { pgEnum } from "drizzle-orm/pg-core";
 
 /**
  * ⚠️ Estos dos arrays son copias literales de `PACKAGE_STATUSES`
- * (@lastmile/state-machine) y `ROLES` (@lastmile/shared) — la fuente de
+ * (@fyc/state-machine) y `ROLES` (@fyc/shared) — la fuente de
  * verdad real sigue siendo esa, NO este archivo.
  *
  * No se importan directamente porque el bundler de `drizzle-kit` (esbuild

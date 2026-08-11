@@ -1,5 +1,5 @@
 {
-  "name": "@lastmile/config",
+  "name": "@fyc/config",
   "private": true,
   "version": "0.1.0",
   "description": "ESLint, TypeScript y Tailwind config compartidos entre apps y packages",

@@ -61,10 +61,10 @@ corre en el Edge runtime y valida la sesión ANTES de llegar al handler:
 
 - Envía el JWT de Supabase en el header `Authorization: Bearer <token>`.
 - El middleware lo verifica contra Supabase Auth (`auth.getUser`).
-- Si es válido, setea el header interno `x-lastmile-user-id` y deja pasar;
+- Si es válido, setea el header interno `x-fyc-user-id` y deja pasar;
   si no, responde `401 UNAUTHORIZED` con el envelope estándar, sin ejecutar
   el handler.
-- El middleware **siempre sobreescribe** cualquier `x-lastmile-user-id` que
+- El middleware **siempre sobreescribe** cualquier `x-fyc-user-id` que
   mande el cliente (no se puede impostar una identidad ajena).
 
 ### Autorización por rol (handler)
@@ -114,7 +114,7 @@ Sin Redis (PROMPT-MAESTRO §5) — ventana fija atómica sobre la tabla
 ## 6. El patrón de un Route Handler (copiar y pegar esto)
 
 ```ts
-import { PACKAGE_STATUSES } from "@lastmile/state-machine";
+import { PACKAGE_STATUSES } from "@fyc/state-machine";
 import { z } from "zod";
 import {
   consumeRateLimit, jsonError, jsonOk, parseBody, parseParams,

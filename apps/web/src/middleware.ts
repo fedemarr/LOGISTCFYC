@@ -7,14 +7,14 @@ import { NextResponse, type NextRequest } from "next/server";
  * Verifica la sesión de Supabase ANTES de que la request llegue a un Route
  * Handler. La autorización por rol NO se resuelve acá: este middleware corre
  * en el Edge runtime de Next (sin acceso a Postgres) — solo valida el JWT y
- * deja la identidad en el header `x-lastmile-user-id`, que `requireRole`/
+ * deja la identidad en el header `x-fyc-user-id`, que `requireRole`/
  * `requireUser` (`apps/web/src/lib/api/auth.ts`) usan para cargar roles y
  * `org_id` desde la base. ADR-015: RLS no protege al backend, esto sí.
  *
  * El middleware SIEMPRE sobreescribe el header que pudiera mandar el
  * cliente, así no se puede impostar un `userId` ajeno.
  */
-const USER_ID_HEADER = "x-lastmile-user-id";
+const USER_ID_HEADER = "x-fyc-user-id";
 
 function getBearerToken(request: NextRequest): string | null {
   const auth = request.headers.get("authorization");

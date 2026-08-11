@@ -2,7 +2,7 @@ import {
   ForbiddenTransitionError,
   IllegalTransitionError,
   PreconditionFailedError,
-} from "@lastmile/state-machine";
+} from "@fyc/state-machine";
 import { describe, expect, it, vi } from "vitest";
 import { AppError, Errors, errorToBody, toAppError } from "../errors";
 import { fail, jsonError, jsonOk, ok, paginationMeta } from "../response";

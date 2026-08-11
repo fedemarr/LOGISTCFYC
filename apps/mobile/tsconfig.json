@@ -1,5 +1,5 @@
 {
-  "extends": "@lastmile/config/typescript/react-native",
+  "extends": "@fyc/config/typescript/react-native",
   "compilerOptions": {
     "paths": {
       "@/*": ["./src/*"]

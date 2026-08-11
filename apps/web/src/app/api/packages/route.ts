@@ -1,4 +1,4 @@
-import { PACKAGE_STATUSES } from "@lastmile/state-machine";
+import { PACKAGE_STATUSES } from "@fyc/state-machine";
 import { and, count, desc, eq, inArray, like, or } from "drizzle-orm";
 import { z } from "zod";
 import {

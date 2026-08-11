@@ -1,4 +1,4 @@
-// Barrel de @lastmile/shared.
+// Barrel de @fyc/shared.
 //
 // FASE 1 solo deja el package scaffoldeado con lo verdaderamente
 // transversal (roles). Los tipos de dominio (Package, Route, Delivery...)

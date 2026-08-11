@@ -1,4 +1,4 @@
-import type { Role } from "@lastmile/shared";
+import type { Role } from "@fyc/shared";
 import { EXCEPTION_STATUSES, FINAL_STATUSES, type PackageStatus } from "./statuses";
 import {
   type Precondition,

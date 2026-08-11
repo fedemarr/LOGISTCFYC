@@ -1,7 +1,7 @@
 /*
  * Tokens de diseño compartidos — PROMPT-MAESTRO §13.
  * Tailwind v4 es CSS-first: esto reemplaza al `tailwind.config.js` de v3.
- * Los consumidores hacen `@import "@lastmile/config/tailwind/tokens.css";`
+ * Los consumidores hacen `@import "@fyc/config/tailwind/tokens.css";`
  * desde su propio `globals.css`, antes de `@import "tailwindcss";` no,
  * DESPUÉS — ver apps/web/src/app/globals.css para el orden correcto.
  */

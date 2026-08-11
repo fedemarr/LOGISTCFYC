@@ -13,7 +13,7 @@
  *  - `apps/mobile` puede importar `validateTransition()`/`getLegalTransitions()`
  *    para decidir qué botones mostrar, sin arrastrar un driver de Postgres.
  */
-import type { Role } from "@lastmile/shared";
+import type { Role } from "@fyc/shared";
 import {
   ForbiddenTransitionError,
   IllegalTransitionError,

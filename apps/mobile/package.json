@@ -1,5 +1,5 @@
 {
-  "name": "@lastmile/mobile",
+  "name": "@fyc/mobile",
   "version": "0.1.0",
   "private": true,
   "main": "index.ts",
@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@lastmile/shared": "workspace:*",
+    "@fyc/shared": "workspace:*",
     "expo": "~57.0.12",
     "expo-dev-client": "~57.0.11",
     "expo-status-bar": "~57.0.1",
@@ -20,7 +20,7 @@
     "react-native": "0.86.2"
   },
   "devDependencies": {
-    "@lastmile/config": "workspace:*",
+    "@fyc/config": "workspace:*",
     "@types/react": "~19.2.2",
     "eslint": "^9.18.0",
     "typescript": "~6.0.3"
