@@ -20,6 +20,15 @@ const eslintConfig = [
     },
   },
   {
+    // Scripts de CLI para humanos (migraciones, seed, diagnóstico) — no son
+    // "producción" en el sentido de la regla §0.8 (que apunta a código que
+    // sirve requests). Acá el console.log ES la interfaz del script.
+    files: ["src/lib/db/migrate.ts", "src/lib/db/seed/**", "src/lib/db/verify.ts"],
+    rules: {
+      "no-console": "off",
+    },
+  },
+  {
     ignores: [
       "node_modules/**",
       ".next/**",

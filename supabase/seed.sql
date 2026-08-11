@@ -1,3 +1,8 @@
--- Seed de datos de prueba (FASE 2): 1 org, 4 usuarios (uno por rol), 3 vehículos,
--- 5 contenedores, 120 paquetes con direcciones reales del GBA.
--- Ver PROMPT-MAESTRO-CLAUDE-CODE.md §14 (FASE 2).
+-- El seed real vive en apps/web/src/lib/db/seed/ (TypeScript), no acá.
+--
+-- Motivo: crear los 4 usuarios de prueba requiere la API de administración
+-- de Supabase Auth (`supabase.auth.admin.createUser`), que no es SQL — un
+-- .sql plano no puede crear usuarios reales de `auth.users` con contraseña.
+-- Ver docs/DECISIONES.md.
+--
+-- Correr con: cd apps/web && pnpm db:seed
