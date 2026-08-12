@@ -40,6 +40,39 @@ describe("resolveDestination (pura)", () => {
     expect(result.resolved).toBe(false);
     expect(result.rawEvidence?.photoUrl).toBe("https://x.test/foto.jpg");
   });
+
+  it("resuelve OCR (§9.1 escalón 4) cuando el código no trae nada parseable pero hay líneas de OCR con forma de dirección", () => {
+    const result = resolveDestination("ML4471829", "https://x.test/foto.jpg", [
+      "Juan Pérez",
+      "Perú 880",
+      "Villa Ballester",
+    ]);
+    expect(result.resolved).toBe(true);
+    expect(result.source).toBe("OCR");
+    expect(result.confidence).toBe("MEDIUM"); // nunca HIGH — es una heurística sobre texto con ruido
+    expect(result.data.street).toBe("Perú");
+    expect(result.data.number).toBe("880");
+    expect(result.data.locality).toBe("Villa Ballester");
+  });
+
+  it("OCR sin ninguna línea con forma de calle+altura cae a MANUAL igual", () => {
+    const result = resolveDestination("ML4471829", "https://x.test/foto.jpg", [
+      "texto ilegible",
+      "sin sentido",
+    ]);
+    expect(result.resolved).toBe(false);
+    expect(result.source).toBe("MANUAL");
+  });
+
+  it("BARCODE_PAYLOAD sigue ganando aunque también vengan líneas de OCR", () => {
+    const result = resolveDestination(
+      "street=Perú 880|locality=Villa Ballester",
+      undefined,
+      ["otra cosa 123"],
+    );
+    expect(result.source).toBe("BARCODE_PAYLOAD");
+    expect(result.confidence).toBe("HIGH");
+  });
 });
 
 function requireEnv(name: string): string {
@@ -201,5 +234,33 @@ describe("scanPackage (integración contra Supabase real)", () => {
       clientId, // codePrefix registrado es "ML-", este código no arranca así
     });
     expect(outcome.wrongClient).toBe(true);
+  });
+
+  it("código nuevo sin payload pero con líneas de OCR resuelve MEDIUM vía OCR (FASE 8)", async () => {
+    const rawCode = `OCR-${runId}`;
+    const outcome = await scanPackage(ctx, {
+      rawCode,
+      operationId,
+      clientId,
+      photoUrl: "https://x.test/etiqueta.jpg",
+      ocrLines: ["Juan Pérez", "Alvear 1502", "Villa Ballester"],
+    });
+
+    expect(outcome.resolution.source).toBe("OCR");
+    expect(outcome.resolution.confidence).toBe("MEDIUM");
+    expect(outcome.status).toBe("RECIBIDO");
+
+    const [pkg] = await db
+      .select()
+      .from(packages)
+      .where(sql`id = ${outcome.packageId}::uuid`);
+    expect(pkg?.rawAddressText).toContain("Alvear 1502");
+    expect(pkg?.destinationSource).toBe("OCR");
+
+    const [scan] = await db
+      .select({ ocrRawText: packageScans.ocrRawText })
+      .from(packageScans)
+      .where(sql`raw_code = ${rawCode}`);
+    expect(scan?.ocrRawText).toBe("Juan Pérez\nAlvear 1502\nVilla Ballester");
   });
 });

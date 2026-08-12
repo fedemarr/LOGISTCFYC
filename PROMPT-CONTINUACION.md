@@ -49,12 +49,14 @@ autorización:
 
 **Último commit en `main`:** revisá `git log --oneline -10` al arrancar — este documento
 puede quedar desactualizado si una sesión anterior avanzó más y no llegó a actualizarlo.
-Al día de escribir esto: FASE 1 a 7 **cerradas** (backend completo + base de
-`apps/mobile`), y el rediseño visual del panel real (`PROMPT-FRONTEND-V2.md` + `mockup.html`)
-también **aplicado** con alcance acotado (ver ADR-039). Dos bugs reales de producción
-encontrados y arreglados post-deploy (ADR-040) — el deploy hoy carga limpio, verificado con
-`smoke:browser`. Fede pidió explícitamente seguir con FASE 7 en adelante ("seguimos con fase
-7 y para adelante") — el trabajo que sigue es FASE 8 (escaneo + OCR), ver §6.
+Al día de escribir esto: FASE 1 a 8 **cerradas** del lado del código (backend completo +
+`apps/mobile` con navegación, sync offline y escaneo/OCR), y el rediseño visual del panel
+real (`PROMPT-FRONTEND-V2.md` + `mockup.html`) también **aplicado** con alcance acotado (ver
+ADR-039). Dos bugs reales de producción encontrados y arreglados post-deploy (ADR-040) — el
+deploy hoy carga limpio, verificado con `smoke:browser`. **FASE 8 tiene una verificación
+pendiente que solo un dispositivo real puede hacer** (§14: probar OCR con 20 etiquetas
+reales) — ver ADR-042 y §3. Fede pidió explícitamente seguir fase por fase hacia adelante
+("seguimos con fase 7 y para adelante") — el trabajo que sigue es FASE 9 (custodia), ver §6.
 
 **Repo:** `https://github.com/fedemarr/LOGISTCFYC` (rama `main`). El working tree debería
 estar limpio; si no lo está, mirá qué quedó a medio hacer antes de seguir.
@@ -429,6 +431,79 @@ actuales de Expo Router/expo-sqlite para SDK 57 en vez de asumir versiones vieja
 5. **`main` en `package.json` es `"expo-router/entry"`**, no un `index.ts` propio — no lo
    vuelvas a cambiar a mano, rompe toda la navegación.
 
+### FASE 8 — Escaneo móvil y OCR ✅ (código) / ⚠️ sin verificar en dispositivo real — ver ADR-042
+
+Backend + mobile completos del lado del código. **Importante antes de seguir:** esta fase
+tiene un criterio de aceptación explícito de §14 que dice literalmente "escanear 20
+etiquetas reales y medir el % de campos correctos del OCR, documentar el resultado" —
+**eso todavía no pasó**. Nadie lo probó en un dispositivo real (este entorno no tiene
+emulador Android ni device conectado). El código está listo, tipado, linteado y con toda la
+lógica pura testeada — pero "anda de verdad" es literalmente algo que solo alguien con un
+teléfono y paquetes reales puede confirmar. No lo des por cerrado sin eso.
+
+**Backend:**
+
+- `resolveDestination()`/`scanPackage()` (`lib/services/ingestion.ts`) ahora implementan el
+  escalón OCR completo de la cascada (§2) — antes era `deferred` (ADR-029). Acepta
+  `ocrLines?: string[]` opcional en `ScanRequest`, corre `parseOcrAddressLines()`
+  (`@fyc/shared`, NUEVO) si `BARCODE_PAYLOAD`/`ADDRESS_MEMORY` no resolvieron. Siempre
+  `confidence: MEDIUM`, nunca `HIGH` — es una heurística sobre texto de OCR con ruido.
+- `POST /api/operations/:id/scan` acepta `ocrLines` en el body — pero `apps/mobile` NO lo
+  usa en su flujo actual (ver el punto siguiente, es a propósito).
+- `packages/shared/src/lib/address-ocr-parser.ts` (`parseOcrAddressLines`) — parser de
+  direcciones argentinas a partir de líneas de OCR, COMPARTIDO entre mobile y servidor
+  (mismo motivo que `barcode.ts`). Heurística por orden típico de etiqueta (nombre → calle
+  y altura → piso/depto → localidad → teléfono), documentada con sus límites — no es NLP,
+  es regex + orden. 6 tests.
+
+**Mobile — flujo de escaneo (`app/(driver)/escanear.tsx` + `app/(driver)/etiqueta/[packageId].tsx`):**
+
+- `/escanear`: cámara en modo lectura de códigos (`expo-camera`, `CameraView`,
+  `onBarcodeScanned`) — "modo depósito" de loop rápido: escanea, feedback, cooldown de
+  1.2s, sigue escaneando solo. Si el código resuelve (o es duplicado) sigue en el loop; si
+  NO resuelve, navega a `/etiqueta/:packageId` para la foto.
+- `/etiqueta/:packageId`: foto con guía de encuadre → OCR on-device
+  (`expo-text-extractor`) → si no se pudo leer texto suficiente, pantalla de "reintentar
+  foto" (§14: "rechazo de fotos borrosas" — ver la limitación real de esto en ADR-042
+  punto 4, no es análisis de píxeles de verdad) → si se pudo leer, pantalla de
+  confirmación con los campos parseados YA EDITABLES + la foto al lado → el operador
+  confirma → **recién ahí** se manda al servidor, a `POST /api/packages/:id/resolve` (el
+  endpoint MANUAL de FASE 5), como `MANUAL/HIGH`, NO como `OCR/MEDIUM` — ver el punto
+  siguiente, es la decisión más importante de esta fase.
+- **Decisión clave: el OCR nunca auto-confirma.** Aunque el servidor SÍ sabe resolver con
+  `ocrLines` (y auto-transicionaría a RECIBIDO si se lo mandaras), la app deliberadamente
+  NO le manda `ocrLines` a `/scan` — hace el parseo local y espera que un humano toque
+  CONFIRMAR antes de mandar nada. Es la lectura literal de §9.1 ("mostrar foto + campos
+  editables → **confirmar**"). Si en algún momento se quiere autoconfirmar OCR de alta
+  confianza sin humano de por medio, es un cambio de UX explícito a decidir con Fede, no
+  algo que se coló por default.
+- Feedback: `src/hooks/useScanFeedback.ts` — 3 sonidos `.wav` SINTÉTICOS (generados con un
+  script propio en `node`, sin assets de terceros — no quedó el script en el repo, solo el
+  resultado en `apps/mobile/assets/sounds/`) + `expo-haptics` (`notificationAsync`
+  Success/Warning/Error), diferenciados por resultado (OK/duplicado/error).
+- **NO incluido a propósito:** subida de la foto a Storage — se queda local, se usa para
+  OCR y para mostrarla en la confirmación, nunca se sube. El pipeline de Storage (bucket
+  privado, URLs firmadas, compresión) se construye una sola vez en FASE 10 (evidencia de
+  entrega, que necesita exactamente lo mismo) — ver ADR-042 punto 6.
+
+**Gotchas nuevos de FASE 8:**
+
+1. **Este entorno tuvo un problema de conectividad real hacia Supabase mientras se hacía
+   esta fase** (`ECONNRESET` en la primera query de CADA test de integración, confirmado
+   con un cliente `pg` aislado sin vitest/drizzle de por medio, y con Supabase reportando
+   "operational" en su status page — o sea, algo de este lado, no del lado de Supabase).
+   Si ves esto de nuevo: no es tu código, probá `ping`/conexión directa antes de asumir que
+   rompiste algo. Si persiste, puede hacer falta revisar VPN/firewall local.
+2. **`expo-text-extractor` no da confianza por línea** — por diseño, cualquier resultado de
+   OCR en este sistema es `MEDIUM`, nunca `HIGH`. Si el día de mañana se cambia de paquete
+   de OCR y el nuevo SÍ da confianza, es una decisión aparte si vale la pena diferenciar
+   MEDIUM/HIGH dentro del mismo `source: OCR` (el enum ya lo permitiría).
+3. **La detección de "foto borrosa" es un proxy (cantidad de texto reconocido), no blur
+   real.** Una foto nítida de algo que no es una etiqueta da el mismo resultado que una
+   foto borrosa de verdad. Documentado, no escondido — ver ADR-042 punto 4 antes de
+   "arreglarlo" sin entender el trade-off (analizar píxeles de verdad es una pieza de
+   ingeniería aparte, `expo-image-manipulator` + Laplaciano).
+
 ## 4. Credenciales — dónde están, qué falta
 
 Todo lo que ya se consiguió está en `.env` (raíz, **no está en git**, no lo va a encontrar
@@ -594,33 +669,43 @@ pnpm exec expo start --dev-client  # necesita un development build instalado en 
 No hay build de producción "local" para mobile como el `next build` de web — el equivalente
 es `eas build`, que necesita la cuenta de Expo vinculada (§4, todavía no conseguida).
 
-## 6. Qué sigue: FASE 8 — Escaneo móvil y OCR
+## 6. Qué sigue: FASE 9 — Custodia y carga
 
-FASE 1 a 7 cerradas. Fede confirmó explícitamente seguir fase por fase hacia adelante
-("seguimos con fase 7 y para adelante") — el ritual de §7 sigue aplicando sin pausas entre
-fases salvo que él pida parar.
+FASE 1 a 8 cerradas del lado del código (ver §3 para el detalle de FASE 8 y su limitación
+real: sin verificar en un dispositivo físico todavía). Fede confirmó explícitamente seguir
+fase por fase hacia adelante ("seguimos con fase 7 y para adelante") — el ritual de §7 sigue
+aplicando sin pausas entre fases salvo que él pida parar.
 
-**FASE 8 (§14 del documento madre) — alcance esperado:**
+**Antes de arrancar FASE 9, valdría la pena que alguien (Fede) pruebe FASE 8 en un
+dispositivo real** — es la primera vez en el proyecto que hay código nativo (cámara, OCR,
+haptics, sonido) que ningún test automatizado puede verificar. No es bloqueante para seguir
+codeando FASE 9 (es una fase distinta, con su propio código), pero sí es bloqueante para el
+criterio de aceptación de FASE 8 en sí.
 
-- Cámara con escaneo de códigos multiformato (usar `expo-camera`, ya instalado desde FASE 7).
-- Captura de foto de etiqueta con guía de encuadre, flash automático, **rechazo de fotos
-  borrosas**.
-- OCR on-device con ML Kit + parser de direcciones argentinas — vas a necesitar evaluar si
-  hay un wrapper de Expo para ML Kit o si hace falta un módulo nativo custom (investigar
-  antes de asumir; `expo-image-picker` ya está instalado pero no hace OCR por sí solo).
-- Pantalla de confirmación: foto a un lado, campos editables al otro.
-- Modo depósito (rol `warehouse`): escaneo en loop de alta velocidad.
-- Feedback sonoro y háptico diferenciado: OK / duplicado / error.
-- Esto es del lado `apps/mobile` — el backend de resolución de códigos ya existe
-  (`resolveDestination()`/`scanPackage()` de FASE 5, `apps/web/src/lib/services/ingestion.ts`)
-  y ya tiene el escalón OCR definido en la cascada pero deferred (ADR-029) — FASE 8 es
-  también el momento de implementarlo del lado servidor si el flujo de mobile lo necesita
-  (mandar la foto + texto reconocido on-device, o mandar la foto cruda para que el servidor
-  la procese — decisión a tomar viendo qué tan bueno es el OCR on-device en la práctica).
-- **Criterio de aceptación (§14):** escanear 20 etiquetas reales y medir el % de campos
-  correctos del OCR. Documentar el resultado — no es un número inventable, hace falta
-  probarlo con etiquetas de verdad (pedirle a Fede fotos reales si no hay forma de conseguir
-  paquetes físicos para probar).
+**FASE 9 (§14 del documento madre) — alcance esperado:**
+
+- Escaneo del contenedor (QR del contenedor físico, `containers.qr_payload` ya existe en el
+  schema desde FASE 2) → acta de custodia.
+- Conteo rápido: "RUTA 002 — Esperados: 42 bultos", el chofer tipea la cantidad. Si coincide,
+  confirma y listo (95% de los días, según §9.3). Si NO coincide, escaneo individual
+  obligatorio de esa ruta — el sistema tiene que decir EXACTAMENTE qué bulto falta o sobra.
+- **Esto es lo que finalmente habilita la transición real `APPROVED → ASSIGNED → LOADING →
+LOADED`** que hoy no existe en el código (ver ADR-041 punto 3 y `lib/services/driver.ts`
+  — `ACTIVE_ROUTE_STATUSES` incluye `APPROVED` como parche hasta que esto exista). Cuando
+  implementes la transición real, revisá si todavía hace falta ese parche o si `APPROVED`
+  se puede sacar de la lista.
+- Chequeo cruzado en ruta (§9.3): "BULTO NO ENCONTRADO" busca automáticamente en las demás
+  rutas activas — mecanismo clave, leer el comentario completo de §9.3 antes de implementar
+  (el conteo simple NO detecta un bulto que se mezcló entre rutas).
+- Bloqueo de inicio de ruta con diferencia abierta; override de `dispatcher` con motivo
+  obligatorio (mismo patrón que las excepciones de la máquina de estados, `requireExceptionReason`
+  en `@fyc/state-machine`).
+- Checklist de validaciones de inicio de ruta (§9.4): custodia sin diferencias, vehículo
+  `AVAILABLE`, permisos de ubicación (incluido background), GPS con precisión <50m,
+  optimización de batería desactivada para la app, ruta descargada completa a SQLite
+  (ya existe desde FASE 7, `downloadCurrentRoute`), batería >20% (advertencia, no bloqueo).
+- **Esta es la fase que necesita `custody_transfers`** (tabla ya existe desde FASE 2, sin
+  usar todavía) — revisar su schema exacto antes de empezar.
 
 ## 7. Ritual al cerrar cada fase (no te lo saltees aunque no pares a pedir aprobación)
 

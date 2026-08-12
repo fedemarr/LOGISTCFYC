@@ -289,7 +289,7 @@ con `fromManifest: true` (necesario para el reporte de cierre).
 ### `POST /api/operations/:id/scan`
 
 Escaneo en loop (§9.1 paso 3) — corre la cascada completa. Body:
-`{ rawCode, codeFormat?, clientId?, deviceId?, photoUrl?, lat?, lng? }`.
+`{ rawCode, codeFormat?, clientId?, deviceId?, photoUrl?, ocrLines?, lat?, lng? }`.
 Respuesta: `{ packageId, internalCode, trackingCode, status, resolution:
 { resolved, source, confidence }, duplicate, duplicateInfo?, wrongClient }`.
 
@@ -301,6 +301,16 @@ Respuesta: `{ packageId, internalCode, trackingCode, status, resolution:
   cliente"). No bloquea, solo informa — el operador aparta el bulto.
 - Si `resolution.resolved` y el paquete estaba `PENDIENTE_RESOLUCION`,
   transiciona a `RECIBIDO` (vía `runPackageTransition`, evento incluido).
+- `ocrLines` (FASE 8): líneas de texto ya reconocidas por OCR on-device
+  (nunca se manda una foto para que el servidor la lea). Si `BARCODE_PAYLOAD`
+  y `ADDRESS_MEMORY` no resolvieron, se intenta `parseOcrAddressLines()`
+  (`@fyc/shared`) sobre esas líneas — resuelve a `source: "OCR",
+confidence: "MEDIUM"` (nunca `HIGH`). **`apps/mobile` no usa este campo
+  en su flujo actual** — hace el OCR y el parseo local, se lo muestra al
+  operador para confirmar, y manda el resultado ya confirmado a
+  `POST /api/packages/:id/resolve` como `MANUAL/HIGH` en su lugar (ver
+  ADR-042 punto 3). Queda disponible acá para otros casos de uso
+  (reprocesamiento en lote, por ejemplo).
 
 ### `GET /api/operations/:id/pending`
 

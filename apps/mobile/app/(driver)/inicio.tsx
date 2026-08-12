@@ -7,6 +7,7 @@ import {
   View,
 } from "react-native";
 import { useSQLiteContext } from "expo-sqlite";
+import { useRouter } from "expo-router";
 import { useSession } from "../../src/context/session";
 import { useSyncStore } from "../../src/lib/sync/store";
 import { downloadCurrentRoute, getLocalRoute } from "../../src/lib/db/routes";
@@ -28,6 +29,7 @@ interface LocalRouteSummary {
  */
 export default function InicioScreen() {
   const db = useSQLiteContext();
+  const router = useRouter();
   const { signOut } = useSession();
   const { isOnline, isSyncing, pendingCount, lastError } = useSyncStore();
   const [localRoute, setLocalRoute] = React.useState<
@@ -174,6 +176,21 @@ export default function InicioScreen() {
           </Text>
         )}
       </View>
+
+      <TouchableOpacity
+        onPress={() => router.push("/escanear")}
+        style={{
+          height: touch.primaryButton,
+          borderRadius: radius.md,
+          backgroundColor: colors.text,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Text style={{ fontFamily: fonts.sansBold, fontSize: 17, color: colors.bg }}>
+          Escanear paquetes
+        </Text>
+      </TouchableOpacity>
 
       <TouchableOpacity
         onPress={() => void handleDownload()}

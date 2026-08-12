@@ -10,9 +10,15 @@
  *      delimitado).
  *   3. ADDRESS_MEMORY      — este mismo código raw ya se escaneó y resolvió
  *      antes (en otra operación).
- *   4. OCR                 — foto de la etiqueta. NO implementado todavía:
- *      requiere `apps/mobile` (FASE 8, captura de foto) o Vision API
- *      configurada. Documentado como deferred, no simulado.
+ *   4. OCR                 — texto reconocido on-device por
+ *      `apps/mobile` (FASE 8, `expo-text-extractor`, ML Kit/Vision) sobre
+ *      la foto de la etiqueta. El servidor NUNCA hace OCR — recibe las
+ *      líneas de texto ya reconocidas y las parsea con
+ *      `parseOcrAddressLines()` (`@fyc/shared`, compartido con mobile
+ *      para que la lógica de parseo no se desincronice). Siempre
+ *      confianza MEDIUM (§9.1: "mostrar foto + campos editables →
+ *      confirmar"), nunca HIGH — es una heurística sobre texto con ruido,
+ *      no una fuente estructurada como BARCODE_PAYLOAD.
  *   5. MANUAL              — bandeja de resolución humana (fallback final,
  *      "ningún paquete queda fuera del sistema").
  *
@@ -23,6 +29,7 @@ import { and, desc, eq, isNotNull, ne } from "drizzle-orm";
 import {
   detectCodeFormat,
   parseBarcodePayload,
+  parseOcrAddressLines,
   type CodeFormat,
   type ParsedAddress,
   type ResolutionResult,
@@ -40,6 +47,8 @@ export interface ScanRequest {
   clientId?: string;
   deviceId?: string;
   photoUrl?: string;
+  /** Líneas de texto que reconoció el OCR on-device de `apps/mobile` sobre la foto de la etiqueta (§2 escalón 4). */
+  ocrLines?: string[];
   lat?: number;
   lng?: number;
 }
@@ -80,7 +89,11 @@ export function generateInternalCode(): string {
  * dirección (no vino con manifiesto, o el manifiesto no traía dirección).
  * No toca la base — es la parte pura de la cascada, testeable sin DB.
  */
-export function resolveDestination(rawCode: string, photoUrl?: string): ResolutionResult {
+export function resolveDestination(
+  rawCode: string,
+  photoUrl?: string,
+  ocrLines?: string[],
+): ResolutionResult {
   const payload = parseBarcodePayload(rawCode);
   if (payload) {
     return {
@@ -92,9 +105,22 @@ export function resolveDestination(rawCode: string, photoUrl?: string): Resoluti
     };
   }
 
-  if (photoUrl) {
-    // OCR: deferred (ver comentario de arriba). No se simula un resultado
-    // falso — cae a MANUAL con la foto ya adjunta para que el humano la vea.
+  if (ocrLines && ocrLines.length > 0) {
+    const parsed = parseOcrAddressLines(ocrLines);
+    if (parsed) {
+      // MEDIUM siempre (§9.1) — el chofer/depósito ya confirmó los campos
+      // en la pantalla de confirmación antes de que esto llegue acá, pero
+      // la fuente sigue siendo una heurística de OCR, no un dato
+      // estructurado — la confianza refleja el ORIGEN, no si un humano lo
+      // miró.
+      return {
+        resolved: true,
+        source: "OCR",
+        confidence: "MEDIUM",
+        data: parsed,
+        rawEvidence: { photoUrl, rawCode },
+      };
+    }
   }
 
   return {
@@ -214,7 +240,7 @@ export async function scanPackage(
       };
     } else {
       // No hay manifiesto (o no traía dirección): sigue la cascada 2-5.
-      resolution = resolveDestination(req.rawCode, req.photoUrl);
+      resolution = resolveDestination(req.rawCode, req.photoUrl, req.ocrLines);
 
       // ADDRESS_MEMORY (escalón 3): ¿este código raw se resolvió antes,
       // en otra operación?
@@ -300,6 +326,7 @@ export async function scanPackage(
       lng: req.lng,
       scanContext: "INTAKE",
       photoUrl: req.photoUrl,
+      ocrRawText: req.ocrLines?.join("\n"),
     });
 
     const needsTransition = resolution.resolved && pkg.status === "PENDIENTE_RESOLUCION";

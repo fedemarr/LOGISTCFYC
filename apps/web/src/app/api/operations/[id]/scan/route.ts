@@ -38,6 +38,7 @@ const bodySchema = z.object({
   clientId: z.string().uuid("cliente inválido").optional(),
   deviceId: z.string().trim().max(200).optional(),
   photoUrl: z.string().url().optional(),
+  ocrLines: z.array(z.string()).max(50).optional(),
   lat: z.coerce.number().optional(),
   lng: z.coerce.number().optional(),
 });

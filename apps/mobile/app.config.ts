@@ -41,6 +41,16 @@ const config: ExpoConfig = {
     "expo-secure-store",
     "expo-font",
     "expo-splash-screen",
+    "expo-audio",
+    [
+      "expo-camera",
+      {
+        cameraPermission:
+          "FYC usa la cámara para escanear códigos y fotografiar etiquetas de los paquetes.",
+        microphonePermission: false,
+        recordAudioAndroid: false,
+      },
+    ],
   ],
   experiments: {
     typedRoutes: true,
