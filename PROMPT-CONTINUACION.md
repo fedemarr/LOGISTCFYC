@@ -59,10 +59,31 @@ estar limpio; si no lo está, mirá qué quedó a medio hacer antes de seguir.
 `https://web-2842cb7py-fmcodes-projects.vercel.app` (protegido por Vercel Authentication,
 solo accesible logueado con esa cuenta). El deploy se dispara solo con cada push a `main`.
 **Config de Vercel:** el Root Directory quedó en la raíz del repo con comandos explícitos
-en `vercel.json` (ver ADR-012). **Pendiente en Vercel:** agregar la env var
-`SUPABASE_SERVICE_ROLE_KEY` (la key ya está en `.env` local) — sin ella,
-`POST /api/users` falla en producción (el alta de usuarios del panel necesita el service
-role para crear el usuario en Supabase Auth; ver ADR-024).
+en `vercel.json` (ver ADR-012).
+
+**Env vars en Vercel — estado real (verificado `vercel env ls <env> --scope
+fmcodes-projects`):**
+
+- **Production:** las 4 vars core están (`SUPABASE_SERVICE_ROLE_KEY`,
+  `DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`) —
+  `SUPABASE_SERVICE_ROLE_KEY` se agregó y se verificó de punta a punta (login,
+  alta de usuario, soft delete, cleanup) el 2026-08-11.
+- **Preview y Development: CERO env vars.** Ni siquiera `NEXT_PUBLIC_SUPABASE_URL`. Un
+  deploy de preview (una rama que no sea `main`, un PR) rompe el build entero, no solo
+  `/api/users`. **Nadie las agregó todavía** — el harness de esta sesión bloqueó el intento
+  (clasificador de modo automático no deja modificar config de servicios externos vía CLI).
+  Pedirle a Fede que corra esto (o que apruebe el permiso y hacerlo desde la sesión):
+  ```bash
+  vercel env add NEXT_PUBLIC_SUPABASE_URL preview --value "<del .env>" --scope fmcodes-projects --yes
+  vercel env add NEXT_PUBLIC_SUPABASE_ANON_KEY preview --value "<del .env>" --scope fmcodes-projects --yes
+  vercel env add SUPABASE_SERVICE_ROLE_KEY preview --value "<del .env>" --scope fmcodes-projects --yes
+  vercel env add DATABASE_URL preview --value "<del .env>" --scope fmcodes-projects --yes
+  # repetir con "development" en vez de "preview" si hace falta `vercel dev` conectado a Vercel
+  ```
+- **Gotcha de verificación:** `vercel env pull` **enmascara los valores de vars sensibles
+  como `""`**. No sirve para chequear si una var tiene el valor correcto — solo para
+  chequear que existe. Para confirmar el valor real, hay que hacer un smoke test end-to-end
+  (login + una llamada que la use) o mirar el dashboard.
 
 ### FASE 1 — Scaffolding ✅ (commits `a40988a`, `afbc85b`, `1fda482`)
 
@@ -208,8 +229,8 @@ lo reconstruyas con placeholders y sigas de largo.
 
 Ya conseguido (Supabase project `xdhjxecrozcozcstndbr`, región `sa-east-1`): URL, anon key,
 service role key, `DATABASE_URL` (session pooler). GitHub conectado. Vercel deployado y con
-Git integration activa. **La `SUPABASE_SERVICE_ROLE_KEY` está en `.env` local pero FALTA
-agregarla en Vercel** (sin ella `POST /api/users` falla en producción — ver ADR-024).
+Git integration activa. Las 4 vars core ya están en Vercel **Production** (ver detalle en
+§3) — **faltan en Preview y Development**, todavía sin resolver.
 
 **Todavía NO conseguido** (vas a necesitarlo en las fases que siguen — pedíselo a Fede
 cuando llegues ahí, no antes):
