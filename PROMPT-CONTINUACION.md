@@ -49,7 +49,11 @@ autorización:
 
 **Último commit en `main`:** revisá `git log --oneline -10` al arrancar — este documento
 puede quedar desactualizado si una sesión anterior avanzó más y no llegó a actualizarlo.
-Al día de escribir esto: FASE 1, 2 y 3 **cerradas**, FASE 4 **en curso** (ver abajo).
+Al día de escribir esto: FASE 1 a 5 **cerradas** (commit `a548e51`). FASE 6 (Ruteo) es la
+próxima a arrancar. Además, hay un pedido explícito de Fede pendiente de aplicar **después**
+de FASE 6: rediseñar visualmente el panel real (no un mock aparte) siguiendo
+`PROMPT-FRONTEND-V2.md` + `mockup.html` (ambos en la raíz del repo, ya trackeados en git
+desde el commit de FASE 5) — ver §6.
 
 **Repo:** `https://github.com/fedemarr/LOGISTCFYC` (rama `main`). El working tree debería
 estar limpio; si no lo está, mirá qué quedó a medio hacer antes de seguir.
@@ -214,11 +218,80 @@ desplegada (renombrarla re-aplicaría migraciones). Prueba del deploy:
 5. **Stale `.next`:** al eliminar `src/app/page.tsx` el typecheck rompía con referencias
    fantasma (`Cannot find module .../app/page.js`). Se resuelve borrando `apps/web/.next`.
 
-**Falta (lo que sigue ahora mismo):**
+**Falta (no bloqueante, pendiente para cuando toque pulir el panel):**
 
-1. `app/(panel)/paquetes` ya está como lista; si hace falta el detalle de paquete y las
-   acciones de transición del panel, es alcance de la próxima sub-fase de FASE 4.
-2. Cerrar: correr la suite completa, actualizar esta sección a "✅", commit + push.
+1. Detalle de paquete + acciones de transición manual desde el panel (fuera de la cascada de
+   ingesta) — no se hizo porque FASE 5 la resolvió parcialmente vía `/deposito` (scan +
+   bandeja de resolución). Retomar si hace falta un detalle de paquete individual con
+   historial de eventos.
+
+FASE 4 se considera base suficiente (sesión + shell + CRUD + design system) para construir
+FASE 5 encima, que es lo que se hizo. No se cerró con su propio commit final separado —
+quedó incorporada al flujo normal de commits (`4a7f43d`, `045bf5d`).
+
+### FASE 5 — Ingesta y resolución de destino ✅ (commit `a548e51`)
+
+Cascada completa de PROMPT-MAESTRO §2 implementada y testeada de punta a punta:
+
+- **`packages/shared`:** tipos de ingesta (`ResolutionResult`, `ScanInput`, etc.), detección
+  y parseo de código de barras puro (`detectCodeFormat`, `parseBarcodePayload`, JSON o
+  `key=value|key=value`), normalización + hash de dirección compartido con el seed
+  (`normalizeAddressText`/`hashNormalizedAddress`, `crypto.subtle` — isomórfico
+  Node/browser/RN).
+- **Cascada de resolución** (`apps/web/src/lib/services/ingestion.ts`): MANIFEST →
+  BARCODE_PAYLOAD → ADDRESS_MEMORY → OCR (deferred a FASE 8, no simulado — cae a MANUAL con
+  la foto adjunta) → MANUAL. Detecta duplicados (mismo código escaneado dos veces en la
+  misma operación, ambos intentos quedan auditados) y "wrong client" (prefijo de
+  `clients.code_prefix` que no matchea).
+- **Geocoding con caché agresivo** (`lib/services/geocoding.ts`): `known_addresses` →
+  `geocode_cache` → Google Geocoding API, con degradación controlada (`accuracy: "FAILED"`,
+  no excepción) si `GOOGLE_GEOCODING_API_KEY` no está seteada. `geocodeOperationPackages()`
+  procesa en lote los `RECIBIDO` de una operación.
+- **Cierre de operación** (`lib/services/operations.ts`): reconciliación de faltantes
+  (`from_manifest=true`, nunca escaneado) y sobrantes (`from_manifest=false`, sí escaneado),
+  cierra la operación (`status: CLOSED`).
+- **8 endpoints REST** bajo `/api/operations/*` (list/create, detail, import CSV
+  pre-mapeado, scan, bandeja de pendientes, geocodificar en lote, cerrar) +
+  `/api/packages/[id]/resolve` (resolución manual). Todos siguen el patrón de FASE 3
+  (`jsonOk`/`jsonError`, Zod, `requireRole`).
+- **UI funcional** en `/deposito` (nav "Depósito", roles admin/dispatcher/warehouse):
+  crear/ver operación del día, importar manifiesto (paste CSV), escanear, ver bandeja de
+  resolución, geocodificar en lote, cerrar con reporte de reconciliación. **Sin el pulido
+  visual del mockup todavía** — es la pantalla base sobre la que se aplica el rediseño de
+  §6 más adelante.
+- Migraciones `0005` (`clients.code_prefix`) y `0006` (`packages.from_manifest`).
+- 19 tests de integración nuevos contra Supabase real + 14 tests puros (barcode/normalize).
+
+**Gotchas nuevos de FASE 5 — no los vuelvas a pisar:**
+
+1. **No anides `db.transaction()`.** `runPackageTransition()` (de FASE 3) abre su propia
+   transacción con `SELECT ... FOR UPDATE`. Si la llamás desde adentro de otra
+   `db.transaction()` sin commitear antes, dos conexiones del pool esperan el mismo lock
+   entre sí → deadlock. Patrón correcto en `ingestion.ts`/`geocoding.ts`: la transacción
+   externa devuelve un resultado con una flag (`needsTransition`), y `runPackageTransition()`
+   se llama DESPUÉS, ya afuera. Si falla ahí, el paquete queda con los datos completos pero
+   sin transicionar — estado recuperable, no corrupción.
+2. **`ALTER TABLE ... DISABLE TRIGGER` es global al catálogo de Postgres, no
+   session-scoped.** Con Vitest corriendo archivos de test en paralelo, la ventana de
+   cleanup de un archivo (disable→delete→enable) puede pisar la aserción de otro archivo de
+   que un DELETE está bloqueado — carrera real, no teórica (pasó). Usar
+   `apps/web/src/lib/db/test-helpers.ts` → `purgeTestEvents(orgId)`, que usa
+   `SET LOCAL session_replication_role = replica` dentro de un `db.transaction()` (scope de
+   una sola transacción/conexión). Cualquier test nuevo que necesite limpiar `events` debe
+   usar esta función, no repetir el patrón viejo.
+3. **El Session Pooler de Supabase tiene un límite de conexiones concurrentes bajo.** Con 9+
+   archivos de test de integración (cada uno con su propio `pg.Pool` por ser proceso forkeado
+   de Vitest) corriendo en paralelo, se agotaban las conexiones y aparecían timeouts
+   (`Test timed out in 5000ms`) en cascada. `apps/web/vitest.config.ts` tiene
+   `fileParallelism: false` (archivos en serie) + `testTimeout: 20_000`. No lo revasa sin
+   entender por qué está — volvería la falla intermitente.
+4. **`process.env.X` puede ser `""` en vez de `undefined`** si la var está declarada vacía en
+   `.env` (`GOOGLE_GEOCODING_API_KEY=`). El código de producción ya lo trata bien (`!apiKey`
+   es falsy para `""`), pero si escribís un test que chequea "no está configurada", comparar
+   contra `""`, no contra `toBeUndefined()`.
+5. **Import CSV recibe filas ya mapeadas** (`{ trackingCode, recipientName?, ... }`), no un
+   CSV crudo — el mapeo de columnas (si hace falta UI para elegir qué columna es qué) es
+   responsabilidad del cliente/frontend, no del endpoint (ver ADR-031).
 
 ## 4. Credenciales — dónde están, qué falta
 
@@ -264,19 +337,64 @@ $env:NODE_ENV="production"; pnpm exec dotenv -e ../../.env -- next build
 Si algo de esto falla, arreglalo antes de seguir avanzando de fase — no construyas FASE 3
 sobre una FASE 2 rota.
 
-## 6. Qué sigue: FASE 4 — Panel web (resto de la base)
+## 6. Qué sigue: FASE 6 — Ruteo, y después el rediseño visual del panel
 
-FASE 4 (del documento madre §14) está **en curso**: el login, el shell con sidebar por rol,
-los CRUD de usuarios/vehículos/clientes/contenedores, la lista de paquetes y el design
-system ya están. Lo que sigue de la base del panel:
+**Orden decidido por Fede** ("hace las 2 fases siguientes y dsp involucralo, como vos veas"):
+primero FASE 6 completa (backend de ruteo), y **recién después** el rediseño visual. No
+alteres ese orden sin que te lo pidan.
 
-- Detalle de paquete y acciones de transición (delivery) desde el panel si corresponde a la
-  fase (ver `PROMPT-MAESTRO-CLAUDE-CODE.md` §14 FASE 4 para el alcance exacto).
-- Cerrar la fase: suite completa verde, actualizar la sección 3 de este archivo, commit +
-  push.
+### FASE 6 — Ruteo (`PROMPT-MAESTRO-CLAUDE-CODE.md` §8 y §14)
 
-Recordá: los CRUD y sus forms ya existen y funcionan (búsqueda, paginación, estados
-empty/loading/error, soft delete con confirmación). No los reescribas — extendelos.
+Todavía no arrancada. Alcance esperado:
+
+- `packages/geo`: clustering capacitado (k-means con restricción de capacidad por vehículo) +
+  DBSCAN para detectar outliers/direcciones sueltas que no conviene meter en un cluster.
+  Ya existe haversine en este package (FASE 1) — no la reimplementes.
+- Secuenciación dentro de cada cluster: nearest-neighbor + mejora 2-opt.
+- Integración con Google Routes API (vas a necesitar `GOOGLE_ROUTES_API_KEY`, todavía no
+  conseguida — pedísela a Fede cuando llegues a este punto, ver §4), con el mismo criterio de
+  caché agresivo que geocoding (no volver a pedir la misma matriz de distancias).
+- Endpoint(s) de generación de propuesta de rutas + revisión/ajuste manual + aprobación
+  (aprobar congela `bulk_number`, ver §7/§9 del documento madre).
+- Generación de etiquetas/labels imprimibles (PDF, pensar en térmica y A4 — confirmar con
+  Fede el tipo de impresora si no está en `.env`/decisiones previas antes de asumir un
+  tamaño).
+- UI mínima funcional para la pantalla de planner (sin el pulido visual todavía — eso es el
+  paso siguiente).
+- Mismo rigor que FASE 5: tests de integración reales contra Supabase, ADRs para cualquier
+  desvío del documento madre, suite completa verde antes de commitear, actualizar este
+  archivo al cerrar.
+
+### Después de FASE 6: rediseño visual del panel real
+
+Pedido explícito de Fede: **"quiero que se vea de esa manera"**, señalando
+`PROMPT-FRONTEND-V2.md` + `mockup.html` (ambos en la raíz del repo). Ante la pregunta
+explícita de si aplicar esto sobre las pantallas reales o construir un mock aparte con datos
+falsos, **eligió expresamente "Reemplazar el diseño del panel real (Recomendado)"** — es
+decir: tomar las pantallas ya funcionales (con datos reales de Supabase: shell, sidebar,
+login, CRUD de usuarios/vehículos/clientes/contenedores, `/deposito`, y la nueva pantalla de
+planner de FASE 6) y aplicarles el sistema de diseño de `PROMPT-FRONTEND-V2.md` — **no**
+crear una maqueta desconectada de la base real.
+
+Puntos clave del sistema de diseño (leer ambos archivos completos antes de tocar nada, son
+la fuente de verdad — no improvises tokens):
+
+- Tipografías Archivo (sans) + JetBrains Mono (mono, `tabular-nums` para números/códigos).
+- Tema oscuro por defecto, con override `[data-theme="light"]` (usar `next-themes` para el
+  toggle). Tokens hex exactos en `PROMPT-FRONTEND-V2.md` (`--bg:#0F1115` oscuro /
+  `#F7F8FA` claro, etc.) — no inventes otros.
+- Paleta fija de 12 colores para rutas + el elemento "costilla" (barra vertical de 4px de
+  color) como el único adorno visual del sistema — no agregues ornamentación nueva que no
+  esté en el mockup.
+- Mapa con MapLibre GL JS + estilos MapTiler/Carto dataviz (vas a necesitar
+  `NEXT_PUBLIC_MAPTILER_KEY`, todavía no conseguida, ver §4) para la pantalla de planner.
+- 8 sub-fases (F1-F8) descriptas en `PROMPT-FRONTEND-V2.md` — seguilas en orden, no saltees
+  al componente final sin las fundaciones (tokens/fuentes/tema primero).
+
+Cerrar esto con el mismo ritual: suite verde (incluye verificación visual manual/capturas si
+hace falta, no solo tests automatizados — es un cambio de UI), ADRs de cualquier desvío del
+mockup que sea necesario por integrarlo con datos reales, actualizar este archivo, commit +
+push.
 
 ## 7. Ritual al cerrar cada fase (no te lo saltees aunque no pares a pedir aprobación)
 
