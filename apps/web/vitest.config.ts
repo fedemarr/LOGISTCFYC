@@ -14,6 +14,15 @@ export default defineConfig({
     // ENOENT para hosts fuera de caché, ej. la conexión directa a
     // Supabase). "forks" usa procesos hijo completos y no lo sufre.
     pool: "forks",
+    // Casi todos los tests son de integración contra el Session Pooler
+    // real de Supabase, que tiene un límite chico de conexiones
+    // concurrentes. Con varios archivos de test en paralelo (cada uno con
+    // su propio pool de `pg`) se agota y las queries quedan esperando una
+    // conexión hasta el timeout — no es un test flaky, es contención real
+    // de un recurso compartido. Correr los archivos uno detrás del otro
+    // es más lento pero determinístico.
+    fileParallelism: false,
+    testTimeout: 20_000,
   },
   // Vitest (via Vite) intenta procesar postcss.config.mjs del proyecto al
   // arrancar aunque los tests no toquen CSS para nada, y ese config usa

@@ -11,6 +11,7 @@ import {
   Package,
   Truck,
   Users,
+  Warehouse,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -37,6 +38,12 @@ const NAV_ITEMS: {
     label: "Paquetes",
     icon: Package,
     roles: ["admin", "dispatcher", "warehouse", "driver"],
+  },
+  {
+    href: "/deposito",
+    label: "Depósito",
+    icon: Warehouse,
+    roles: ["admin", "dispatcher", "warehouse"],
   },
   {
     href: "/clientes",

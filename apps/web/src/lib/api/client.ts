@@ -147,3 +147,72 @@ export interface ContainerItem {
   isActive: boolean;
   createdAt: string;
 }
+
+// ── Ingesta (FASE 5) ─────────────────────────────────────────────────────
+
+export type OperationStatus = "OPEN" | "CLOSED";
+
+export interface OperationItem {
+  id: string;
+  operationDate: string;
+  status: OperationStatus;
+  expectedCount: number;
+  receivedCount: number;
+  notes: string | null;
+  createdAt: string;
+}
+
+export type DestinationSource =
+  "MANIFEST" | "BARCODE_PAYLOAD" | "OCR" | "MANUAL" | "ADDRESS_MEMORY";
+export type DestinationConfidence = "HIGH" | "MEDIUM" | "LOW";
+
+export interface ScanOutcomeResponse {
+  packageId: string;
+  internalCode: string;
+  trackingCode: string;
+  status: string;
+  resolution: {
+    resolved: boolean;
+    source: DestinationSource;
+    confidence: DestinationConfidence;
+  };
+  duplicate: boolean;
+  duplicateInfo?: { scannedBy: string; scannedAt: string };
+  wrongClient: boolean;
+}
+
+export interface PendingPackageItem {
+  id: string;
+  internalCode: string;
+  trackingCode: string | null;
+  recipientName: string | null;
+  labelPhotoUrl: string | null;
+  createdAt: string;
+}
+
+export interface ImportSummary {
+  created: number;
+  skipped: number;
+  total: number;
+}
+
+export interface GeocodeSummary {
+  processed: number;
+  geocoded: number;
+  failed: number;
+}
+
+export interface ReconciliationItem {
+  trackingCode: string | null;
+  internalCode: string;
+}
+
+export interface CloseOperationResponse {
+  operation: OperationItem;
+  reconciliation: {
+    expected: number;
+    received: number;
+    missing: ReconciliationItem[];
+    surplus: ReconciliationItem[];
+  };
+}

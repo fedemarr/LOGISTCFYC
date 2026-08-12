@@ -252,3 +252,90 @@ Contenedores del depósito. Misma matriz que vehículos.
 > Los CRUD usan soft delete (regla global del proyecto) y validación Zod
 > por endpoint. Los `[id]` devuelven `NOT_FOUND` si el recurso no existe o
 > está soft-deleted.
+
+## 10. Ingesta y resolución de destino (FASE 5)
+
+Implementa la cascada de §2: identidad (código) separada de destino
+(dirección), en este orden — MANIFEST → BARCODE_PAYLOAD → ADDRESS_MEMORY →
+OCR (deferred) → MANUAL. Servicios en `apps/web/src/lib/services/ingestion.ts`
+(cascada + escaneo), `geocoding.ts` (caché + `known_addresses`) y
+`operations.ts` (cierre/reconciliación).
+
+### `GET|POST /api/operations`
+
+Operación del día (§9.1). **Lectura:** admin/dispatcher toda la org;
+warehouse solo las `OPEN`. **Escritura:** admin/dispatcher/warehouse.
+
+- `GET`: `?page&pageSize&status`.
+- `POST` body: `{ operationDate (YYYY-MM-DD), expectedCount?, notes? }`.
+  `CONFLICT` si ya existe una operación para esa fecha (única por
+  `org_id, operation_date`).
+
+### `GET /api/operations/:id`
+
+Detalle + `packagesByStatus` (conteo agrupado por estado del paquete).
+
+### `POST /api/operations/:id/import`
+
+Importador de manifiesto (§2, §9.1 paso 2). **El mapeo de columnas es
+responsabilidad del cliente** — este endpoint recibe filas ya normalizadas,
+no CSV crudo (mantiene el backend simple; el drag&drop de columnas es UI
+pura). Body: `{ clientId?, rows: [{ trackingCode, recipientName?,
+recipientPhone?, address?, weightKg?, declaredValue? }] }` (máx. 2000
+filas). Idempotente por `trackingCode` dentro de la operación — reimportar
+el mismo archivo no duplica. Cada fila crea un paquete `PENDIENTE_RESOLUCION`
+con `fromManifest: true` (necesario para el reporte de cierre).
+
+### `POST /api/operations/:id/scan`
+
+Escaneo en loop (§9.1 paso 3) — corre la cascada completa. Body:
+`{ rawCode, codeFormat?, clientId?, deviceId?, photoUrl?, lat?, lng? }`.
+Respuesta: `{ packageId, internalCode, trackingCode, status, resolution:
+{ resolved, source, confidence }, duplicate, duplicateInfo?, wrongClient }`.
+
+- `duplicate: true` — mismo código ya escaneado en esta operación; se
+  audita igual (nunca se pierde un intento de escaneo) pero no crea/toca
+  el paquete de nuevo.
+- `wrongClient: true` — el prefijo del código no coincide con
+  `clients.codePrefix` del cliente indicado (§9.1, "paquete de otro
+  cliente"). No bloquea, solo informa — el operador aparta el bulto.
+- Si `resolution.resolved` y el paquete estaba `PENDIENTE_RESOLUCION`,
+  transiciona a `RECIBIDO` (vía `runPackageTransition`, evento incluido).
+
+### `GET /api/operations/:id/pending`
+
+Bandeja de resolución (§2, §9.1 paso 4): paquetes que la cascada no pudo
+resolver. Ningún paquete queda fuera del sistema — están acá.
+
+### `POST /api/packages/:id/resolve`
+
+Resolución manual (§2, escalón MANUAL de la cascada). Body:
+`{ rawAddressText, recipientName?, recipientPhone? }`. Marca
+`destinationSource: MANUAL, destinationConfidence: HIGH` y transiciona
+`PENDIENTE_RESOLUCION → RECIBIDO`.
+
+### `POST /api/operations/:id/geocode`
+
+Geocodifica en lote los paquetes `RECIBIDO` de la operación (§9.1 paso 5).
+Síncrono (a 120 paquetes/día alcanza, ver ADR-030). Cascada de costo:
+`known_addresses` (gratis) → `geocode_cache` (gratis) → Google Geocoding API
+(paga, solo si `GOOGLE_GEOCODING_API_KEY` está configurada — todavía no lo
+está, ver `.env`). Sin la key, todo cae a `FAILED` de forma controlada (no
+rompe nada, §16). Devuelve `{ processed, geocoded, failed }`.
+
+### `POST /api/operations/:id/close`
+
+Cierre de la recepción (§9.1 paso final). **admin/dispatcher.** Marca la
+operación `CLOSED` y devuelve el reporte de reconciliación:
+`{ operation, reconciliation: { expected, received, missing[], surplus[] } }`.
+
+- **Faltantes:** paquetes con `fromManifest: true` que nunca se escanearon
+  (`package_scans` sin fila para ellos).
+- **Sobrantes:** paquetes escaneados que NO vinieron en el manifiesto
+  (`fromManifest: false` pero sí tienen scan) — códigos que aparecieron de
+  la nada.
+
+> Esto es el cierre de la _recepción_ (comparar manifiesto vs. escaneado),
+> distinto del "cierre del día" de §9.9 (reconciliación de entregas —
+> CARGADOS = ENTREGADOS + FALLIDOS + DEVUELTOS + EN_DEPÓSITO), que es
+> FASE 12 y necesita datos de `deliveries`/`incidents` que todavía no existen.

@@ -21,6 +21,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { events, organizations, packages, userRoles, users } from "@/lib/db/schema";
+import { purgeTestEvents } from "@/lib/db/test-helpers";
 import { runPackageTransition } from "../state-machine";
 
 function requireEnv(name: string): string {
@@ -94,9 +95,7 @@ describe("runPackageTransition (integración contra Supabase real)", () => {
   }, 30_000);
 
   afterAll(async () => {
-    await db.execute(sql`ALTER TABLE events DISABLE TRIGGER events_forbid_delete`);
-    await db.execute(sql`DELETE FROM events WHERE org_id = ${orgId}`);
-    await db.execute(sql`ALTER TABLE events ENABLE TRIGGER events_forbid_delete`);
+    await purgeTestEvents(orgId);
 
     await db.delete(packages).where(sql`org_id = ${orgId}`);
     await db.delete(userRoles).where(sql`user_id in (${adminId}, ${driverId})`);

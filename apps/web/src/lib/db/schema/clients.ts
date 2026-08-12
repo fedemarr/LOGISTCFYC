@@ -9,6 +9,8 @@ export const clients = pgTable("clients", {
     .references(() => organizations.id),
   name: text("name").notNull(),
   contact: text("contact"),
+  /** Prefijo del código para detectar "paquete de otro cliente" (§9.1). Opcional. */
+  codePrefix: text("code_prefix"),
   pricingConfig: jsonb("pricing_config").notNull().default({}),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

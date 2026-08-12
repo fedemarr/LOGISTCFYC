@@ -5,7 +5,7 @@
  * Idempotente: se puede correr varias veces (`pnpm db:seed`) sin duplicar
  * — busca por email/nombre/plate/código antes de insertar.
  */
-import { createHash } from "node:crypto";
+import { hashNormalizedAddress } from "@fyc/shared";
 import { createClient } from "@supabase/supabase-js";
 import { eq } from "drizzle-orm";
 import { db } from "../index";
@@ -46,16 +46,6 @@ function mustExist<T>(value: T | undefined, what: string): T {
     throw new Error(`Seed: se esperaba encontrar/crear "${what}" y no está.`);
   }
   return value;
-}
-
-function normalizeHash(rawText: string): string {
-  const normalized = rawText
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "") // saca acentos
-    .replace(/\s+/g, " ")
-    .trim();
-  return createHash("sha256").update(normalized).digest("hex");
 }
 
 function getSupabaseAdmin() {
@@ -234,7 +224,7 @@ async function main(): Promise<void> {
       );
       const number = 100 + ((addressSeed * 137) % 8000);
       const rawText = `${street} ${number}, ${locality.locality}, ${locality.municipality}, Buenos Aires`;
-      const hash = normalizeHash(rawText);
+      const hash = await hashNormalizedAddress(rawText);
 
       const existing = await db.query.knownAddresses.findFirst({
         where: eq(knownAddresses.normalizedHash, hash),

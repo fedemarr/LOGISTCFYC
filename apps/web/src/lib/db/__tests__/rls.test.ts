@@ -15,6 +15,7 @@ import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db } from "../index";
 import { organizations, packages, routes, users, userRoles, operations } from "../schema";
+import { purgeTestEvents } from "../test-helpers";
 
 const TEST_PASSWORD = "RlsTest123!";
 
@@ -152,9 +153,7 @@ describe("RLS (integración contra Supabase real)", () => {
     // exactamente lo que es esta conexión de administración — un cliente
     // normal de la app jamás podría hacer esto). Nunca hacer esto contra
     // datos reales, solo contra el fixture de este test.
-    await db.execute(sql`ALTER TABLE events DISABLE TRIGGER events_forbid_delete`);
-    await db.execute(sql`DELETE FROM events WHERE org_id = ${orgId}`);
-    await db.execute(sql`ALTER TABLE events ENABLE TRIGGER events_forbid_delete`);
+    await purgeTestEvents(orgId);
 
     await db.delete(packages).where(sql`org_id = ${orgId}`);
     await db.delete(routes).where(sql`org_id = ${orgId}`);

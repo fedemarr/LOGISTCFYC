@@ -58,6 +58,9 @@ export const packages = pgTable(
     deliveryAttempts: integer("delivery_attempts").notNull().default(0),
     routeId: uuid("route_id").references(() => routes.id),
     bulkNumber: integer("bulk_number"),
+    /** Vino del manifiesto importado (vs. apareció al escanear sin estar
+     * en el manifiesto) — necesario para el reporte de cierre (§9.1). */
+    fromManifest: boolean("from_manifest").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),

@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sistema de Última Milla — Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0F1115; --surface:#171A21; --surface-2:#1F232C; --surface-3:#272C37;
+  --border:#2A2F3A; --border-2:#373D4A;
+  --text:#E8EAED; --muted:#8B919E; --muted-2:#646B79;
+  --pending:#8B919E; --active:#3B82F6; --success:#22C55E; --warning:#F59E0B; --danger:#EF4444;
+  --r1:#0EA5E9; --r2:#A855F7; --r3:#22C55E;
+  --radius-sm:6px; --radius-md:10px; --radius-lg:14px;
+  --t-fast:120ms cubic-bezier(.4,0,.2,1); --t-base:200ms cubic-bezier(.4,0,.2,1);
+}
+[data-theme="light"]{
+  --bg:#F7F8FA; --surface:#FFFFFF; --surface-2:#F0F2F5; --surface-3:#E6E9EE;
+  --border:#DFE3E8; --border-2:#CBD1DA;
+  --text:#14171C; --muted:#666E7D; --muted-2:#8891A0;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:'Archivo',system-ui,sans-serif; font-size:14px; line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  transition:background var(--t-base),color var(--t-base);
+}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.label{font-size:11px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+:focus-visible{outline:2px solid var(--active);outline-offset:2px}
+
+/* ── Chrome del mockup ── */
+.chrome{
+  display:flex;align-items:center;gap:4px;
+  padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surface);
+  position:sticky;top:0;z-index:100;
+}
+.brand{display:flex;align-items:center;gap:9px;margin-right:20px}
+.brand-mark{width:22px;height:22px;border-radius:5px;background:linear-gradient(135deg,var(--r1),var(--r2));flex-shrink:0}
+.brand-name{font-weight:700;font-size:14px;letter-spacing:-.01em}
+.brand-tag{font-size:10px;color:var(--muted-2);letter-spacing:.08em;text-transform:uppercase;padding:2px 6px;border:1px solid var(--border);border-radius:4px}
+.tabs{display:flex;gap:2px}
+.tab{
+  padding:7px 13px;border-radius:var(--radius-sm);font-size:13px;font-weight:500;
+  color:var(--muted);transition:all var(--t-fast);white-space:nowrap;
+}
+.tab:hover{color:var(--text);background:var(--surface-2)}
+.tab.on{color:var(--text);background:var(--surface-3)}
+.chrome-right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.icon-btn{
+  width:32px;height:32px;border-radius:var(--radius-sm);display:grid;place-items:center;
+  color:var(--muted);transition:all var(--t-fast);border:1px solid transparent;
+}
+.icon-btn:hover{color:var(--text);background:var(--surface-2);border-color:var(--border)}
+
+.screen{display:none}
+.screen.on{display:block}
+
+/* ── Barra de métricas ── */
+.metrics{display:flex;border-bottom:1px solid var(--border);background:var(--surface)}
+.metric{padding:14px 26px;border-right:1px solid var(--border);cursor:pointer;transition:background var(--t-fast)}
+.metric:hover{background:var(--surface-2)}
+.metric-val{font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:700;letter-spacing:-.03em;line-height:1.1;font-variant-numeric:tabular-nums}
+.metric-val.warn{color:var(--danger)}
+.metric .label{margin-top:3px}
+
+/* ── Layout planificador ── */
+.planner{display:grid;grid-template-columns:296px 1fr;height:calc(100vh - 53px - 74px)}
+.side{border-right:1px solid var(--border);background:var(--surface);overflow-y:auto;padding:12px}
+.side::-webkit-scrollbar{width:8px}
+.side::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:4px}
+
+/* ── Tarjeta de ruta + COSTILLA ── */
+.rcard{
+  position:relative;background:var(--surface-2);border:1px solid var(--border);
+  border-radius:var(--radius-md);padding:12px 12px 12px 18px;margin-bottom:8px;
+  cursor:pointer;transition:all var(--t-base);overflow:hidden;
+}
+.rcard:hover{border-color:var(--border-2);transform:translateX(1px)}
+.rcard.sel{border-color:var(--border-2);background:var(--surface-3)}
+.spine{position:absolute;left:0;top:0;bottom:0;width:4px;transition:background var(--t-base)}
+.rcard-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.rnum{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;letter-spacing:.02em}
+.rdriver{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text);margin-bottom:9px}
+.rdriver .dot{width:20px;height:20px;border-radius:50%;background:var(--surface-3);display:grid;place-items:center;font-size:9px;font-weight:700;color:var(--muted);flex-shrink:0}
+.rstats{display:flex;gap:14px;margin-bottom:9px}
+.rstat-v{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500;font-variant-numeric:tabular-nums}
+.rstat-l{font-size:10px;color:var(--muted-2);letter-spacing:.05em;text-transform:uppercase}
+.cap{display:flex;align-items:center;gap:8px}
+.cap-track{flex:1;height:5px;background:var(--surface);border-radius:3px;overflow:hidden}
+.cap-fill{height:100%;border-radius:3px;transition:width var(--t-base),background var(--t-base)}
+.cap-pct{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;color:var(--muted);min-width:32px;text-align:right}
+
+.unassigned{
+  border:1px dashed var(--danger);background:rgba(239,68,68,.07);
+  border-radius:var(--radius-md);padding:12px;margin-top:14px;
+}
+.unassigned.clear{border-color:var(--border);background:var(--surface-2);border-style:solid}
+.ua-head{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--danger);letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px}
+.unassigned.clear .ua-head{color:var(--muted)}
+.ua-body{font-size:12px;color:var(--muted);line-height:1.45}
+.ua-btn{margin-top:9px;width:100%;padding:7px;border-radius:var(--radius-sm);background:var(--surface-3);border:1px solid var(--border);font-size:12px;font-weight:500;transition:all var(--t-fast)}
+.ua-btn:hover{background:var(--border);border-color:var(--border-2)}
+
+/* ── Mapa ── */
+.mapwrap{position:relative;background:var(--bg);overflow:hidden}
+#map{width:100%;height:100%;display:block}
+.hull{transition:opacity var(--t-base),fill-opacity var(--t-base)}
+.pin{cursor:pointer;transition:opacity var(--t-base)}
+.pin:hover .pin-body{filter:brightness(1.25)}
+.dim{opacity:.18}
+.maplayers{
+  position:absolute;top:12px;right:12px;display:flex;gap:2px;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px;
+}
+.lyr{padding:5px 10px;font-size:11px;font-weight:500;color:var(--muted);border-radius:4px;transition:all var(--t-fast)}
+.lyr.on{background:var(--surface-3);color:var(--text)}
+.maphint{
+  position:absolute;bottom:12px;left:12px;font-size:11px;color:var(--muted-2);
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;
+}
+
+/* Popup de pin */
+.pop{
+  position:absolute;z-index:40;background:var(--surface);border:1px solid var(--border-2);
+  border-radius:var(--radius-md);padding:12px;width:224px;display:none;
+  box-shadow:0 8px 28px rgba(0,0,0,.4);
+}
+.pop.on{display:block}
+.pop-code{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;margin-bottom:3px}
+.pop-addr{font-size:12px;color:var(--muted);line-height:1.4;margin-bottom:10px}
+.pop-lbl{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-2);margin-bottom:6px}
+.pop-moves{display:flex;gap:5px}
+.pop-move{
+  flex:1;padding:7px 0;border-radius:var(--radius-sm);background:var(--surface-2);
+  border:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;
+  transition:all var(--t-fast);
+}
+.pop-move:hover{background:var(--surface-3);border-color:var(--border-2)}
+.pop-move.cur{opacity:.35;pointer-events:none}
+
+/* ── Barra de acciones ── */
+.actions{
+  display:flex;align-items:center;gap:8px;padding:11px 16px;
+  border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--surface);
+}
+.btn{
+  padding:8px 15px;border-radius:var(--radius-sm);font-size:13px;font-weight:500;
+  border:1px solid var(--border);background:var(--surface-2);transition:all var(--t-fast);
+  display:inline-flex;align-items:center;gap:7px;
+}
+.btn:hover{background:var(--surface-3);border-color:var(--border-2)}
+.btn-primary{background:var(--text);color:var(--bg);border-color:var(--text);font-weight:600}
+.btn-primary:hover{background:var(--text);opacity:.88}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn:disabled:hover{background:var(--surface-2);border-color:var(--border)}
+.approve-wrap{margin-left:auto;position:relative}
+.tip{
+  position:absolute;bottom:calc(100% + 8px);right:0;background:var(--surface-3);
+  border:1px solid var(--border-2);border-radius:var(--radius-sm);padding:7px 10px;
+  font-size:11px;color:var(--muted);white-space:nowrap;opacity:0;pointer-events:none;transition:opacity var(--t-fast);
+}
+.approve-wrap:hover .tip{opacity:1}
+
+/* ── Timeline gantt ── */
+.gantt{padding:11px 16px;background:var(--surface)}
+.gantt-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+.gantt-hours{display:flex;margin-left:64px;margin-bottom:5px}
+.gantt-hour{flex:1;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted-2)}
+.gantt-row{display:flex;align-items:center;gap:10px;margin-bottom:5px}
+.gantt-lbl{width:54px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;display:flex;align-items:center;gap:6px}
+.gantt-track{flex:1;height:14px;background:var(--surface-2);border-radius:3px;position:relative;overflow:hidden}
+.gantt-bar{height:100%;border-radius:3px;transition:width var(--t-base)}
+.gantt-warn{font-size:11px;color:var(--warning);display:flex;align-items:center;gap:4px;min-width:130px}
+
+/* ── Operaciones ── */
+.ops{padding:18px;max-width:1000px}
+.ops-group{margin-bottom:24px}
+.ops-title{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.ops-title .label{font-size:11px}
+.ops-count{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted-2);background:var(--surface-2);padding:1px 7px;border-radius:9px}
+.exc{
+  position:relative;background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius-md);padding:14px 14px 14px 20px;margin-bottom:8px;overflow:hidden;
+}
+.exc.urgent{border-color:rgba(239,68,68,.35)}
+.exc.pulse{animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{border-color:rgba(239,68,68,.3)}50%{border-color:rgba(239,68,68,.8)}}
+.exc-head{display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap}
+.exc-code{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700}
+.exc-meta{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted)}
+.exc-timer{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:500;color:var(--muted)}
+.exc-timer.hot{color:var(--danger);font-weight:700}
+.exc-reason{font-size:15px;font-weight:600;margin-bottom:3px}
+.exc-addr{font-size:13px;color:var(--muted);margin-bottom:11px}
+.exc-ev{display:flex;gap:7px;margin-bottom:11px}
+.ev-chip{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px 8px}
+.exc-acts{display:flex;gap:6px;flex-wrap:wrap}
+.act{padding:7px 13px;border-radius:var(--radius-sm);font-size:12px;font-weight:500;background:var(--surface-2);border:1px solid var(--border);transition:all var(--t-fast)}
+.act:hover{background:var(--surface-3);border-color:var(--border-2)}
+.act.strong{background:var(--text);color:var(--bg);border-color:var(--text);font-weight:600}
+.exc-sm{display:flex;align-items:center;gap:12px;padding:12px 14px 12px 20px}
+.exc-sm .exc-reason{font-size:13px;font-weight:500;margin:0}
+.exc-sm .exc-acts{margin-left:auto}
+
+.empty{text-align:center;padding:56px 20px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface)}
+.empty-mark{width:44px;height:44px;border-radius:50%;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);display:grid;place-items:center;margin:0 auto 14px;color:var(--success)}
+.empty h3{font-size:17px;font-weight:600;margin-bottom:5px}
+.empty p{font-size:13px;color:var(--muted);max-width:340px;margin:0 auto 18px}
+.empty-stats{display:flex;justify-content:center;gap:32px;padding-top:18px;border-top:1px solid var(--border)}
+.empty-stat-v{font-family:'JetBrains Mono',monospace;font-size:21px;font-weight:700}
+
+/* ── App del chofer ── */
+.appview{display:flex;gap:40px;padding:32px;align-items:flex-start;justify-content:center;flex-wrap:wrap}
+.phone{
+  width:352px;background:#0B0D11;border:9px solid #22262F;border-radius:38px;
+  overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.5);flex-shrink:0;
+}
+.notch{height:26px;background:#0B0D11;display:flex;align-items:center;justify-content:space-between;padding:0 20px}
+.notch-t{font-family:'JetBrains Mono',monospace;font-size:11px;color:#E8EAED;font-weight:500}
+.notch-i{display:flex;gap:5px;color:#8B919E;font-size:10px}
+.phone-body{background:#0F1115;color:#E8EAED;min-height:672px;position:relative;display:flex;flex-direction:column}
+.sync-bar{background:rgba(245,158,11,.13);border-bottom:1px solid rgba(245,158,11,.3);padding:8px 16px;display:flex;align-items:center;gap:7px;font-size:12px;color:#F59E0B;font-weight:500}
+.stop{flex:1;padding:20px 18px;position:relative}
+.stop-spine{position:absolute;left:0;top:0;bottom:0;width:5px}
+.stop-route{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;letter-spacing:.04em;margin-bottom:20px}
+.stop-prog{font-size:11px;font-weight:500;letter-spacing:.07em;text-transform:uppercase;color:#8B919E;margin-bottom:6px}
+.stop-bulk{font-family:'JetBrains Mono',monospace;font-size:44px;font-weight:700;letter-spacing:-.03em;line-height:1;margin-bottom:22px}
+.stop-addr{font-size:21px;font-weight:600;line-height:1.28;margin-bottom:3px}
+.stop-loc{font-size:16px;color:#8B919E;margin-bottom:16px}
+.stop-name{font-size:17px;font-weight:500;margin-bottom:16px}
+.stop-note{
+  background:rgba(245,158,11,.11);border:1px solid rgba(245,158,11,.28);border-radius:10px;
+  padding:11px 13px;display:flex;gap:9px;margin-bottom:22px;
+}
+.stop-note-t{font-size:14px;font-weight:600;color:#F59E0B;line-height:1.35}
+.stop-note-s{font-size:13px;color:#B9925A;margin-top:1px}
+.stop-btns{display:flex;gap:9px;margin-bottom:11px}
+.b56{
+  flex:1;height:56px;border-radius:12px;background:#1F232C;border:1px solid #2A2F3A;
+  color:#E8EAED;font-size:16px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;
+  transition:background var(--t-fast);
+}
+.b56:active{background:#272C37}
+.b64{
+  width:100%;height:64px;border-radius:12px;font-size:19px;font-weight:700;letter-spacing:.02em;
+  display:flex;align-items:center;justify-content:center;margin-bottom:9px;transition:opacity var(--t-fast);
+}
+.b64:active{opacity:.85}
+.b64-primary{background:#E8EAED;color:#0F1115}
+.b64-outline{background:transparent;border:1.5px solid #3A404C;color:#E8EAED;height:56px;font-size:17px}
+.step{padding:20px 18px;flex:1;display:flex;flex-direction:column}
+.step-back{font-size:13px;color:#8B919E;margin-bottom:18px;display:flex;align-items:center;gap:6px}
+.step-t{font-size:22px;font-weight:700;margin-bottom:4px}
+.step-s{font-size:14px;color:#8B919E;margin-bottom:22px}
+.suggest{
+  width:100%;padding:17px;border-radius:12px;background:#1F232C;border:1px solid #2A2F3A;
+  text-align:left;margin-bottom:9px;transition:background var(--t-fast);
+}
+.suggest:active{background:#272C37}
+.suggest-l{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#8B919E;margin-bottom:3px}
+.suggest-v{font-size:18px;font-weight:600;color:#E8EAED}
+.photo-box{
+  flex:1;min-height:210px;border-radius:12px;background:#171A21;border:1.5px dashed #3A404C;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:11px;
+  color:#8B919E;margin-bottom:16px;
+}
+.done-mark{width:76px;height:76px;border-radius:50%;background:rgba(34,197,94,.14);border:2px solid #22C55E;display:grid;place-items:center;margin:0 auto 20px;color:#22C55E}
+.appnotes{max-width:340px}
+.appnotes h3{font-size:15px;font-weight:600;margin-bottom:14px}
+.note{display:flex;gap:11px;margin-bottom:15px}
+.note-n{
+  width:22px;height:22px;border-radius:50%;background:var(--surface-2);border:1px solid var(--border);
+  display:grid;place-items:center;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;
+  color:var(--muted);flex-shrink:0;
+}
+.note-t{font-size:13px;font-weight:600;margin-bottom:2px}
+.note-d{font-size:12px;color:var(--muted);line-height:1.5}
+
+/* ── Timeline paquete ── */
+.tl{padding:26px;max-width:800px}
+.tl-head{
+  position:relative;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);
+  padding:16px 16px 16px 22px;margin-bottom:24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;overflow:hidden;
+}
+.tl-code{font-family:'JetBrains Mono',monospace;font-size:17px;font-weight:700}
+.tl-meta{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted)}
+.pill{
+  display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:20px;
+  font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;margin-left:auto;
+}
+.pill-ok{background:rgba(34,197,94,.13);color:var(--success);border:1px solid rgba(34,197,94,.3)}
+.ev{display:grid;grid-template-columns:62px 20px 1fr;gap:12px;position:relative}
+.ev-time{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:500;color:var(--muted);padding-top:1px;text-align:right}
+.ev-rail{position:relative;display:flex;justify-content:center}
+.ev-dot{width:9px;height:9px;border-radius:50%;background:var(--muted-2);margin-top:6px;z-index:2;border:2px solid var(--bg)}
+.ev-dot.ok{background:var(--success);width:11px;height:11px;margin-top:5px}
+.ev-line{position:absolute;top:14px;bottom:-16px;width:1px;background:var(--border)}
+.ev:last-child .ev-line{display:none}
+.ev-body{padding-bottom:20px}
+.ev-act{font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ev-who{font-size:12px;color:var(--muted);margin-left:auto;font-weight:400}
+.ev-detail{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.5}
+.ev-photo{
+  margin-top:8px;width:112px;height:76px;border-radius:var(--radius-sm);background:var(--surface-2);
+  border:1px solid var(--border);display:grid;place-items:center;color:var(--muted-2);font-size:11px;gap:4px;
+}
+.geo{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--muted-2)}
+</style>
+</head>
+<body>
+
+<div class="chrome">
+  <div class="brand">
+    <div class="brand-mark"></div>
+    <div class="brand-name">Última Milla</div>
+    <div class="brand-tag">Mockup</div>
+  </div>
+  <div class="tabs">
+    <button class="tab on" data-s="planner">Planificador</button>
+    <button class="tab" data-s="ops">Operaciones</button>
+    <button class="tab" data-s="driver">App del chofer</button>
+    <button class="tab" data-s="timeline">Trazabilidad</button>
+  </div>
+  <div class="chrome-right">
+    <button class="icon-btn" id="themeBtn" title="Cambiar tema">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- ══════════ PLANIFICADOR ══════════ -->
+<div class="screen on" id="s-planner">
+  <div class="metrics">
+    <div class="metric"><div class="metric-val mono" id="m-scan">120</div><div class="label">Escaneados</div></div>
+    <div class="metric"><div class="metric-val mono warn" id="m-unres">3</div><div class="label">Sin resolver</div></div>
+    <div class="metric"><div class="metric-val mono" id="m-routed">117</div><div class="label">Ruteados</div></div>
+    <div class="metric"><div class="metric-val mono">3</div><div class="label">Rutas</div></div>
+    <div class="metric"><div class="metric-val mono warn" id="m-alerts">2</div><div class="label">Alertas</div></div>
+  </div>
+
+  <div class="planner">
+    <div class="side" id="routePanel"></div>
+    <div class="mapwrap" id="mapwrap">
+      <svg id="map" viewBox="0 0 860 620" preserveAspectRatio="xMidYMid slice"></svg>
+      <div class="maplayers">
+        <button class="lyr on" data-l="hull">Territorios</button>
+        <button class="lyr on" data-l="path">Trazado</button>
+      </div>
+      <div class="maphint">Clic en un paquete para moverlo de ruta</div>
+      <div class="pop" id="pop"></div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M7 8l5-5 5 5M5 21h14"/></svg>
+      Importar
+    </button>
+    <button class="btn" id="regen">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></svg>
+      Generar rutas
+    </button>
+    <button class="btn" id="printBtn">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9V3h12v6M6 18H4v-7h16v7h-2M8 14h8v7H8z"/></svg>
+      Imprimir etiquetas
+    </button>
+    <div class="approve-wrap">
+      <div class="tip" id="tip">3 paquetes sin dirección resuelta</div>
+      <button class="btn btn-primary" id="approve" disabled>Aprobar rutas</button>
+    </div>
+  </div>
+
+  <div class="gantt">
+    <div class="gantt-head"><div class="label">Carga estimada</div></div>
+    <div class="gantt-hours">
+      <div class="gantt-hour">8</div><div class="gantt-hour">9</div><div class="gantt-hour">10</div>
+      <div class="gantt-hour">11</div><div class="gantt-hour">12</div><div class="gantt-hour">13</div>
+      <div class="gantt-hour">14</div><div class="gantt-hour">15</div>
+    </div>
+    <div id="ganttRows"></div>
+  </div>
+</div>
+
+<!-- ══════════ OPERACIONES ══════════ -->
+<div class="screen" id="s-ops">
+  <div class="metrics">
+    <div class="metric"><div class="metric-val mono">3</div><div class="label">Rutas activas</div></div>
+    <div class="metric"><div class="metric-val mono">68<span style="color:var(--muted-2);font-size:20px">/117</span></div><div class="label">Entregados</div></div>
+    <div class="metric"><div class="metric-val mono warn" id="ops-urgent">1</div><div class="label">Urgentes</div></div>
+    <div class="metric"><div class="metric-val mono">2</div><div class="label">En seguimiento</div></div>
+  </div>
+  <div class="ops" id="opsBody"></div>
+</div>
+
+<!-- ══════════ APP DEL CHOFER ══════════ -->
+<div class="screen" id="s-driver">
+  <div class="appview">
+    <div class="phone">
+      <div class="notch">
+        <div class="notch-t">14:28</div>
+        <div class="notch-i"><span>▮▮▮</span><span>◗</span><span>68%</span></div>
+      </div>
+      <div class="phone-body" id="phone"></div>
+    </div>
+    <div class="appnotes">
+      <h3>Por qué está diseñada así</h3>
+      <div class="note"><div class="note-n">1</div><div><div class="note-t">El número de bulto manda</div><div class="note-d">Es lo más grande de la pantalla, a 44px. Es el dato que el chofer necesita para encontrar la caja en la camioneta.</div></div></div>
+      <div class="note"><div class="note-n">2</div><div><div class="note-t">Parada ≠ bulto</div><div class="note-d">La parada es 5 de 42 y se recalcula. El bulto es 17 y va impreso en la etiqueta: nunca cambia.</div></div></div>
+      <div class="note"><div class="note-n">3</div><div><div class="note-t">Dos acciones, no más</div><div class="note-d">Entregar y Problema. Todo lo demás es información. Botón primario de 64px de alto.</div></div></div>
+      <div class="note"><div class="note-n">4</div><div><div class="note-t">La costilla de color</div><div class="note-d">La misma franja violeta que ve acá está impresa en la etiqueta de la caja. Une la pantalla con el cartón.</div></div></div>
+      <div class="note"><div class="note-n">5</div><div><div class="note-t">Entrega en 3 toques</div><div class="note-d">Entregar → nombre → foto. GPS, hora y distancia al objetivo se capturan solos. Probalo tocando el botón.</div></div></div>
+      <div class="note"><div class="note-n">6</div><div><div class="note-t">Nota de la dirección</div><div class="note-d">"Timbre no anda" viene de entregas anteriores a este mismo domicilio. El sistema aprende de la calle.</div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ TRAZABILIDAD ══════════ -->
+<div class="screen" id="s-timeline">
+  <div class="tl">
+    <div class="tl-head">
+      <div class="spine" style="background:#A855F7"></div>
+      <div>
+        <div class="tl-code">#ML-4471829</div>
+        <div class="tl-meta">RUTA 002 · BULTO 17</div>
+      </div>
+      <div class="pill pill-ok">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>
+        Entregado
+      </div>
+    </div>
+    <div id="tlBody"></div>
+  </div>
+</div>
+
+<script>
+/* ═══════════ DATOS MOCK ═══════════ */
+const DEPOT = {x:150, y:520, name:'Depósito · San Martín'};
+
+const ROUTE_META = [
+  {id:'001', color:'#0EA5E9', driver:'Federico Gómez', initials:'FG', capacity:50},
+  {id:'002', color:'#A855F7', driver:'Lucas Ferreyra', initials:'LF', capacity:50},
+  {id:'003', color:'#22C55E', driver:null,            initials:'—',  capacity:50}
+];
+
+// Paquetes con coordenadas coherentes: 3 clusters del norte del GBA + 2 outliers
+const RAW = [
+  // Cluster A — San Martín / Villa Ballester / Villa Adelina (oeste)
+  ['ML-4471801','Av. San Martín 1234','Villa Ballester',215,430,0],
+  ['ML-4471802','Perú 880','Villa Ballester',258,398,0],
+  ['ML-4471803','Alvear 1502','Villa Ballester',196,376,0],
+  ['ML-4471804','Belgrano 2210','San Martín',172,468,0],
+  ['ML-4471805','Matheu 745','San Martín',232,492,0],
+  ['ML-4471806','Rodríguez Peña 310','Villa Adelina',288,332,0],
+  ['ML-4471807','Paraná 1120','Villa Adelina',245,306,0],
+  ['ML-4471808','Independencia 640','Villa Ballester',300,420,0],
+  ['ML-4471809','Sarmiento 1890','San Martín',128,440,0],
+  ['ML-4471810','9 de Julio 455','Villa Ballester',180,340,0],
+  ['ML-4471811','Lavalle 2033','Villa Adelina',330,368,0],
+  ['ML-4471812','Chacabuco 590','San Martín',210,540,0],
+  // Cluster B — Munro / Carapachay / Florida (centro)
+  ['ML-4471820','Vélez Sarsfield 720','Munro',450,398,1],
+  ['ML-4471821','Mitre 1455','Munro',492,362,1],
+  ['ML-4471822','Rawson 288','Carapachay',438,318,1],
+  ['ML-4471829','Av. San Martín 1234','Villa Ballester',520,432,1],
+  ['ML-4471824','Ugarte 902','Florida',556,476,1],
+  ['ML-4471825','Pelliza 1340','Munro',408,452,1],
+  ['ML-4471826','Laprida 615','Carapachay',476,288,1],
+  ['ML-4471827','Gaspar Campos 1780','Munro',532,340,1],
+  ['ML-4471828','Malaver 430','Florida',588,420,1],
+  ['ML-4471830','Ricardo Gutiérrez 1102','Carapachay',420,262,1],
+  ['ML-4471831','Warnes 875','Munro',560,378,1],
+  // Cluster C — Olivos / Vicente López / Martínez (noreste)
+  ['ML-4471840','Av. Maipú 2890','Olivos',690,300,2],
+  ['ML-4471841','Corrientes 445','Vicente López',718,392,2],
+  ['ML-4471842','Roca 1120','Olivos',652,248,2],
+  ['ML-4471843','Alberdi 780','Martínez',760,196,2],
+  ['ML-4471844','Libertador 3450','Olivos',736,268,2],
+  ['ML-4471845','España 226','Vicente López',686,428,2],
+  ['ML-4471846','Villate 1670','Olivos',622,330,2],
+  ['ML-4471847','Ader 540','Martínez',792,232,2],
+  ['ML-4471848','Melo 1988','Vicente López',742,458,2],
+  ['ML-4471849','Paraná 615','Martínez',806,164,2],
+  // Outliers
+  ['ML-4471860','Ruta 8 km 42','Pilar',88,120,0],
+  ['ML-4471861','Colectora 1500','Escobar',820,58,2]
+];
+
+let packages = RAW.map((r,i)=>({
+  code:r[0], street:r[1], locality:r[2], x:r[3], y:r[4], route:r[5],
+  bulk:0, seq:0, outlier:(r[0]==='ML-4471860'||r[0]==='ML-4471861')
+}));
+
+let selected = null, layers = {hull:true, path:true};
+
+/* ═══════════ GEOMETRÍA ═══════════ */
+function dist(a,b){return Math.hypot(a.x-b.x, a.y-b.y)}
+
+// Casco convexo (Andrew monotone chain)
+function hull(pts){
+  if(pts.length < 3) return pts;
+  const p = [...pts].sort((a,b)=>a.x-b.x||a.y-b.y);
+  const cross=(o,a,b)=>(a.x-o.x)*(b.y-o.y)-(a.y-o.y)*(b.x-o.x);
+  const lo=[],up=[];
+  for(const q of p){while(lo.length>=2&&cross(lo[lo.length-2],lo[lo.length-1],q)<=0)lo.pop();lo.push(q)}
+  for(let i=p.length-1;i>=0;i--){const q=p[i];while(up.length>=2&&cross(up[up.length-2],up[up.length-1],q)<=0)up.pop();up.push(q)}
+  lo.pop();up.pop();
+  return lo.concat(up);
+}
+function expand(poly, d){
+  if(poly.length<3) return poly;
+  const cx=poly.reduce((s,p)=>s+p.x,0)/poly.length, cy=poly.reduce((s,p)=>s+p.y,0)/poly.length;
+  return poly.map(p=>{const a=Math.atan2(p.y-cy,p.x-cx);return {x:p.x+Math.cos(a)*d, y:p.y+Math.sin(a)*d}});
+}
+// Secuenciación: vecino más cercano desde el depósito
+function sequence(pts){
+  const rest=[...pts], out=[]; let cur=DEPOT;
+  while(rest.length){
+    let bi=0,bd=Infinity;
+    rest.forEach((p,i)=>{const d=dist(cur,p); if(d<bd){bd=d;bi=i}});
+    cur=rest[bi]; out.push(cur); rest.splice(bi,1);
+  }
+  return out;
+}
+const SCALE = 0.115;   // px del SVG → km aproximados
+function routeMetrics(pts){
+  if(!pts.length) return {km:0, min:0};
+  let d = dist(DEPOT, pts[0]);
+  for(let i=1;i<pts.length;i++) d += dist(pts[i-1], pts[i]);
+  d += dist(pts[pts.length-1], DEPOT);
+  const km = d * SCALE;
+  const min = (km/24)*60 + pts.length*3.4;   // 24 km/h efectivos + 3,4 min por parada
+  return {km, min};
+}
+function fmtTime(min){const h=Math.floor(min/60), m=Math.round(min%60);return h+'h '+String(m).padStart(2,'0')+'m'}
+
+/* ═══════════ ESTADO DERIVADO ═══════════ */
+function buildRoutes(){
+  return ROUTE_META.map((meta,i)=>{
+    const pts = sequence(packages.filter(p=>p.route===i));
+    pts.forEach((p,j)=>{p.seq=j+1});
+    const m = routeMetrics(pts);
+    return {...meta, pts, ...m, pct: Math.round(pts.length/meta.capacity*100)};
+  });
+}
+
+/* ═══════════ RENDER: PANEL DE RUTAS ═══════════ */
+function capColor(pct){return pct>100?'var(--danger)':pct>85?'var(--warning)':'var(--success)'}
+
+function renderPanel(routes){
+  const el = document.getElementById('routePanel');
+  el.innerHTML = routes.map((r,i)=>`
+    <div class="rcard ${selected===i?'sel':''}" data-r="${i}">
+      <div class="spine" style="background:${r.color}"></div>
+      <div class="rcard-head">
+        <div class="rnum">RUTA ${r.id}</div>
+        <div style="width:8px;height:8px;border-radius:50%;background:${r.color}"></div>
+      </div>
+      <div class="rdriver">
+        <div class="dot">${r.initials}</div>
+        ${r.driver ? r.driver : '<span style="color:var(--warning)">Sin asignar</span>'}
+      </div>
+      <div class="rstats">
+        <div><div class="rstat-v">${r.pts.length}</div><div class="rstat-l">Bultos</div></div>
+        <div><div class="rstat-v">${r.km.toFixed(1)}</div><div class="rstat-l">km</div></div>
+        <div><div class="rstat-v">${fmtTime(r.min)}</div><div class="rstat-l">Estimado</div></div>
+      </div>
+      <div class="cap">
+        <div class="cap-track"><div class="cap-fill" style="width:${Math.min(r.pct,100)}%;background:${capColor(r.pct)}"></div></div>
+        <div class="cap-pct">${r.pct}%</div>
+      </div>
+    </div>
+  `).join('') + `
+    <div class="unassigned">
+      <div class="ua-head">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+        Sin asignar · 3
+      </div>
+      <div class="ua-body">3 direcciones no se pudieron resolver automáticamente. No entran al ruteo hasta corregirlas.</div>
+      <button class="ua-btn" id="resolveBtn">Abrir bandeja de resolución</button>
+    </div>`;
+
+  el.querySelectorAll('.rcard').forEach(c=>{
+    c.addEventListener('mouseenter',()=>highlight(+c.dataset.r));
+    c.addEventListener('mouseleave',()=>highlight(null));
+  });
+  document.getElementById('resolveBtn').addEventListener('click',resolveAll);
+}
+
+/* ═══════════ RENDER: MAPA ═══════════ */
+function renderMap(routes){
+  const svg = document.getElementById('map');
+  let s = '';
+
+  // Trama urbana de fondo
+  s += '<g opacity="0.5">';
+  for(let i=1;i<12;i++) s += `<line x1="${i*72}" y1="0" x2="${i*72-40}" y2="620" stroke="var(--border)" stroke-width="1"/>`;
+  for(let i=1;i<9;i++) s += `<line x1="0" y1="${i*70}" x2="860" y2="${i*70+14}" stroke="var(--border)" stroke-width="1"/>`;
+  s += '</g>';
+  // Avenidas
+  s += `<path d="M0 560 Q 300 500 560 430 T 860 300" stroke="var(--border-2)" stroke-width="3" fill="none" opacity="0.7"/>`;
+  s += `<path d="M120 620 L 260 0" stroke="var(--border-2)" stroke-width="2.5" fill="none" opacity="0.55"/>`;
+  // Río
+  s += `<path d="M860 620 Q 800 480 830 340 T 860 120" stroke="#2C5570" stroke-width="26" fill="none" opacity="0.35" stroke-linecap="round"/>`;
+
+  // Territorios
+  if(layers.hull){
+    routes.forEach((r,i)=>{
+      if(r.pts.length<3) return;
+      const poly = expand(hull(r.pts), 26);
+      const d = 'M'+poly.map(p=>`${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L ')+' Z';
+      const dim = selected!==null && selected!==i ? 'dim' : '';
+      s += `<path class="hull ${dim}" d="${d}" fill="${r.color}" fill-opacity="0.12" stroke="${r.color}" stroke-width="2" stroke-linejoin="round"/>`;
+    });
+  }
+
+  // Trazado de la ruta seleccionada
+  if(layers.path){
+    routes.forEach((r,i)=>{
+      if(selected!==null && selected!==i) return;
+      if(!r.pts.length) return;
+      const op = selected===i ? 0.85 : 0.22;
+      const d = `M${DEPOT.x} ${DEPOT.y} L `+r.pts.map(p=>`${p.x} ${p.y}`).join(' L ')+` L ${DEPOT.x} ${DEPOT.y}`;
+      s += `<path d="${d}" fill="none" stroke="${r.color}" stroke-width="2" stroke-opacity="${op}" stroke-dasharray="5 4" stroke-linejoin="round"/>`;
+    });
+  }
+
+  // Pines
+  routes.forEach((r,i)=>{
+    const dim = selected!==null && selected!==i ? 'dim' : '';
+    r.pts.forEach(p=>{
+      const ring = p.outlier ? `<circle cx="${p.x}" cy="${p.y-13}" r="17" fill="none" stroke="var(--danger)" stroke-width="2" opacity="0.85"><animate attributeName="r" values="15;21;15" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.85;0.1;0.85" dur="2s" repeatCount="indefinite"/></circle>` : '';
+      s += `<g class="pin ${dim}" data-code="${p.code}">
+        ${ring}
+        <path class="pin-body" d="M${p.x} ${p.y} c-7.5-10-11-14.5-11-19.5a11 11 0 1 1 22 0c0 5-3.5 9.5-11 19.5Z" fill="${r.color}" stroke="var(--bg)" stroke-width="1.5"/>
+        <text x="${p.x}" y="${p.y-15}" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" fill="#0F1115">${p.seq}</text>
+      </g>`;
+    });
+  });
+
+  // Depósito
+  s += `<g>
+    <rect x="${DEPOT.x-17}" y="${DEPOT.y-17}" width="34" height="34" rx="8" fill="var(--text)" stroke="var(--bg)" stroke-width="2"/>
+    <path d="M${DEPOT.x-8} ${DEPOT.y+1} l8-8 8 8 v8 a1 1 0 0 1-1 1 h-14 a1 1 0 0 1-1-1 Z" fill="var(--bg)"/>
+    <text x="${DEPOT.x}" y="${DEPOT.y+32}" text-anchor="middle" font-family="Archivo, sans-serif" font-size="11" font-weight="600" fill="var(--muted)">DEPÓSITO</text>
+  </g>`;
+
+  svg.innerHTML = s;
+  svg.querySelectorAll('.pin').forEach(g=>{
+    g.addEventListener('click', e=>{e.stopPropagation(); openPop(g.dataset.code, e)});
+  });
+}
+
+function highlight(i){ selected = i; render(); }
+
+/* ═══════════ POPUP DE PIN ═══════════ */
+function openPop(code, e){
+  const p = packages.find(x=>x.code===code);
+  const pop = document.getElementById('pop');
+  const wrap = document.getElementById('mapwrap').getBoundingClientRect();
+  pop.innerHTML = `
+    <div class="pop-code">#${p.code}</div>
+    <div class="pop-addr">${p.street}<br>${p.locality}${p.outlier?'<br><span style="color:var(--danger)">⚠ Fuera del área del cluster</span>':''}</div>
+    <div class="pop-lbl">Mover a ruta</div>
+    <div class="pop-moves">
+      ${ROUTE_META.map((r,i)=>`<button class="pop-move ${p.route===i?'cur':''}" data-to="${i}" style="border-left:3px solid ${r.color}">${r.id}</button>`).join('')}
+    </div>`;
+  let x = e.clientX - wrap.left + 14, y = e.clientY - wrap.top - 10;
+  x = Math.min(x, wrap.width - 240); y = Math.min(y, wrap.height - 170);
+  pop.style.left = x+'px'; pop.style.top = Math.max(y,8)+'px';
+  pop.classList.add('on');
+  pop.querySelectorAll('.pop-move').forEach(b=>{
+    b.addEventListener('click',()=>{
+      p.route = +b.dataset.to;
+      pop.classList.remove('on');
+      render();
+      flashSpine(p.route);
+    });
+  });
+}
+document.addEventListener('click',()=>document.getElementById('pop')?.classList.remove('on'));
+
+function flashSpine(i){
+  const card = document.querySelector(`.rcard[data-r="${i}"]`);
+  if(!card) return;
+  card.style.transition='background 200ms'; card.style.background='var(--surface-3)';
+  setTimeout(()=>{card.style.background=''},420);
+}
+
+/* ═══════════ GANTT ═══════════ */
+function renderGantt(routes){
+  const max = Math.max(...routes.map(r=>r.min), 1);
+  const avg = routes.reduce((s,r)=>s+r.min,0)/routes.length;
+  document.getElementById('ganttRows').innerHTML = routes.map(r=>{
+    const over = r.min > avg*1.15;
+    const diff = Math.round(r.min-avg);
+    return `<div class="gantt-row">
+      <div class="gantt-lbl"><span style="display:inline-block;width:3px;height:12px;background:${r.color};border-radius:2px"></span>${r.id}</div>
+      <div class="gantt-track"><div class="gantt-bar" style="width:${(r.min/max*100).toFixed(1)}%;background:${r.color};opacity:.85"></div></div>
+      <div class="gantt-warn">${over?`<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg> ${fmtTime(diff)} más larga`:''}</div>
+    </div>`;
+  }).join('');
+}
+
+/* ═══════════ RENDER GLOBAL ═══════════ */
+let unresolved = 3;
+function render(){
+  const routes = buildRoutes();
+  renderPanel(routes);
+  renderMap(routes);
+  renderGantt(routes);
+  const outliers = packages.filter(p=>p.outlier).length;
+  document.getElementById('m-routed').textContent = 117;
+  document.getElementById('m-unres').textContent = unresolved;
+  document.getElementById('m-alerts').textContent = outliers;
+  const ap = document.getElementById('approve');
+  ap.disabled = unresolved > 0;
+  document.getElementById('tip').style.display = unresolved>0?'block':'none';
+}
+function resolveAll(){
+  unresolved = 0;
+  document.getElementById('m-unres').classList.remove('warn');
+  const box = document.querySelector('.unassigned');
+  render();
+  const b2 = document.querySelector('.unassigned');
+  b2.classList.add('clear');
+  b2.querySelector('.ua-head').innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg> Sin asignar · 0';
+  b2.querySelector('.ua-body').textContent = 'Todas las direcciones resueltas. Las rutas se pueden aprobar.';
+  b2.querySelector('.ua-btn').remove();
+}
+document.querySelectorAll('.lyr').forEach(b=>{
+  b.addEventListener('click',()=>{layers[b.dataset.l]=!layers[b.dataset.l]; b.classList.toggle('on'); render()});
+});
+document.getElementById('approve').addEventListener('click',function(){
+  this.textContent='✓ Rutas aprobadas'; this.disabled=true;
+});
+document.getElementById('regen').addEventListener('click',render);
+
+/* ═══════════ OPERACIONES ═══════════ */
+const EXC = [{start:244}];
+function renderOps(){
+  const t = EXC[0].start;
+  const mm = Math.floor(t/60), ss = t%60;
+  const hot = t > 480;
+  document.getElementById('opsBody').innerHTML = `
+    <div class="ops-group">
+      <div class="ops-title"><span class="label" style="color:var(--danger)">Urgente</span><span class="ops-count">1</span></div>
+      <div class="exc urgent ${hot?'pulse':''}">
+        <div class="spine" style="background:#0EA5E9"></div>
+        <div class="exc-head">
+          <span class="exc-code">#ML-4471829</span>
+          <span class="exc-meta">RUTA 001 · Federico Gómez</span>
+          <span class="exc-timer ${hot?'hot':''}">${mm}:${String(ss).padStart(2,'0')} ${hot?'· SLA vencido':'/ 10:00'}</span>
+        </div>
+        <div class="exc-reason">Cliente no responde</div>
+        <div class="exc-addr">Av. San Martín 1234, Villa Ballester · Parada 18 de 42</div>
+        <div class="exc-ev">
+          <div class="ev-chip"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2Z"/><circle cx="12" cy="13" r="4"/></svg> Foto adjunta</div>
+          <div class="ev-chip"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"/><circle cx="12" cy="10" r="3"/></svg> A 8 m del objetivo</div>
+        </div>
+        <div class="exc-acts">
+          <button class="act strong">Llamar al cliente</button>
+          <button class="act">Reintentar hoy</button>
+          <button class="act">Reprogramar</button>
+          <button class="act">Devolver a depósito</button>
+        </div>
+      </div>
+    </div>
+    <div class="ops-group">
+      <div class="ops-title"><span class="label" style="color:var(--warning)">Atención</span><span class="ops-count">2</span></div>
+      <div class="exc exc-sm"><div class="spine" style="background:#A855F7"></div>
+        <div><div class="exc-reason">Lucas Ferreyra · sin señal GPS hace 22 min</div><div class="exc-addr" style="margin:2px 0 0">Última posición conocida: Munro, parada 24</div></div>
+        <div class="exc-acts"><button class="act">Ver en mapa</button><button class="act">Llamar</button></div>
+      </div>
+      <div class="exc exc-sm"><div class="spine" style="background:#22C55E"></div>
+        <div><div class="exc-reason">Martín Ruiz · detenido 12 min en la parada 18</div><div class="exc-addr" style="margin:2px 0 0">Av. Maipú 2890, Olivos</div></div>
+        <div class="exc-acts"><button class="act">Ver en mapa</button><button class="act">Llamar</button></div>
+      </div>
+    </div>
+    <div class="ops-group">
+      <div class="ops-title"><span class="label">Seguimiento</span><span class="ops-count">1</span></div>
+      <div class="exc exc-sm"><div class="spine" style="background:#22C55E"></div>
+        <div><div class="exc-reason">Ruta 003 · 40 min de atraso sobre lo estimado</div><div class="exc-addr" style="margin:2px 0 0">31 de 36 entregas · cierre estimado 16:10</div></div>
+        <div class="exc-acts"><button class="act">Ver ruta</button></div>
+      </div>
+    </div>`;
+}
+setInterval(()=>{EXC[0].start++; if(document.getElementById('s-ops').classList.contains('on')) renderOps()},1000);
+
+/* ═══════════ APP DEL CHOFER ═══════════ */
+let appStep = 0;
+const APP = {
+  stop: ()=>`
+    <div class="sync-bar">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.2-8.6"/><path d="M21 3v6h-6"/></svg>
+      3 acciones pendientes de sincronizar
+    </div>
+    <div class="stop">
+      <div class="stop-spine" style="background:#A855F7"></div>
+      <div class="stop-route" style="color:#A855F7">▌ RUTA 002</div>
+      <div class="stop-prog">Parada 5 de 42</div>
+      <div class="stop-bulk">BULTO 17</div>
+      <div class="stop-addr">Av. San Martín 1234<br>Piso 3 Depto B</div>
+      <div class="stop-loc">Villa Ballester</div>
+      <div class="stop-name">Juan Pérez</div>
+      <div class="stop-note">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2.5" stroke-linecap="round" style="flex-shrink:0;margin-top:1px"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+        <div><div class="stop-note-t">Timbre no anda</div><div class="stop-note-s">Llamar antes de llegar</div></div>
+      </div>
+      <div class="stop-btns">
+        <button class="b56"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 11l19-9-9 19-2-8-8-2Z"/></svg> IR</button>
+        <button class="b56"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2 4.2 2 2 0 0 1 4 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.1a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z"/></svg> LLAMAR</button>
+      </div>
+      <button class="b64 b64-primary" onclick="appGo(1)">ENTREGAR</button>
+      <button class="b64 b64-outline" onclick="appGo(4)">PROBLEMA</button>
+    </div>`,
+  who: ()=>`
+    <div class="step">
+      <button class="step-back" onclick="appGo(0)">← Bulto 17 · Parada 5</button>
+      <div class="step-t">¿Quién recibe?</div>
+      <div class="step-s">Toque 1 de 3</div>
+      <button class="suggest" onclick="appGo(2)">
+        <div class="suggest-l">Destinatario esperado</div>
+        <div class="suggest-v">Juan Pérez</div>
+      </button>
+      <button class="suggest" onclick="appGo(2)">
+        <div class="suggest-l">Otro</div>
+        <div class="suggest-v" style="color:#8B919E">Escribir nombre…</div>
+      </button>
+      <div style="flex:1"></div>
+      <div style="font-size:12px;color:#646B79;line-height:1.55;padding:14px;background:#171A21;border-radius:10px">
+        Se capturan solos: ubicación GPS, hora exacta, distancia al domicilio, chofer, vehículo y ruta.
+      </div>
+    </div>`,
+  photo: ()=>`
+    <div class="step">
+      <button class="step-back" onclick="appGo(1)">← Recibe Juan Pérez</button>
+      <div class="step-t">Foto de la entrega</div>
+      <div class="step-s">Toque 2 de 3</div>
+      <div class="photo-box">
+        <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2Z"/><circle cx="12" cy="13" r="4"/></svg>
+        <div style="font-size:14px">Tocá para sacar la foto</div>
+      </div>
+      <button class="b64 b64-primary" onclick="appGo(3)">CONFIRMAR ENTREGA</button>
+    </div>`,
+  done: ()=>`
+    <div class="step" style="justify-content:center;text-align:center">
+      <div class="done-mark"><svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+      <div class="step-t">Bulto 17 entregado</div>
+      <div class="step-s" style="margin-bottom:26px">Recibió Juan Pérez · 14:33 · a 12 m del objetivo</div>
+      <div style="background:#171A21;border-radius:10px;padding:15px;margin-bottom:22px;text-align:left">
+        <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#8B919E;margin-bottom:7px">Siguiente parada</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700;margin-bottom:5px">BULTO 23</div>
+        <div style="font-size:15px;color:#E8EAED">Perú 880, Villa Ballester</div>
+        <div style="font-size:13px;color:#8B919E;margin-top:3px">A 1,2 km · 4 min</div>
+      </div>
+      <button class="b64 b64-primary" onclick="appGo(0)">IR A LA SIGUIENTE</button>
+    </div>`,
+  problem: ()=>`
+    <div class="step">
+      <button class="step-back" onclick="appGo(0)">← Bulto 17 · Parada 5</button>
+      <div class="step-t">¿Qué pasó?</div>
+      <div class="step-s">Operaciones decide qué hacer</div>
+      ${['No había nadie','Cliente no responde','Dirección incorrecta','Domicilio inexistente','Cliente rechazó','No se puede acceder'].map(r=>
+        `<button class="suggest" onclick="appGo(5)"><div class="suggest-v" style="font-size:16px">${r}</div></button>`).join('')}
+    </div>`,
+  waiting: ()=>`
+    <div class="step" style="justify-content:center;text-align:center">
+      <div style="width:70px;height:70px;border-radius:50%;background:rgba(245,158,11,.13);border:2px solid #F59E0B;display:grid;place-items:center;margin:0 auto 20px;color:#F59E0B">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      </div>
+      <div class="step-t">Reportado</div>
+      <div class="step-s" style="margin-bottom:24px">Operaciones lo está viendo. Podés seguir con la parada siguiente mientras tanto.</div>
+      <div style="background:#171A21;border-radius:10px;padding:15px;margin-bottom:22px;text-align:left">
+        <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#8B919E;margin-bottom:7px">Siguiente parada</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700;margin-bottom:5px">BULTO 23</div>
+        <div style="font-size:15px;color:#E8EAED">Perú 880, Villa Ballester</div>
+      </div>
+      <button class="b64 b64-primary" onclick="appGo(0)">CONTINUAR</button>
+    </div>`
+};
+const APP_ORDER = [APP.stop, APP.who, APP.photo, APP.done, APP.problem, APP.waiting];
+function appGo(i){appStep=i; document.getElementById('phone').innerHTML = APP_ORDER[i]()}
+
+/* ═══════════ TRAZABILIDAD ═══════════ */
+const EVENTS = [
+  ['08:03','Recibido','Depósito · Martín R.','Retiro en La Tablada · 120 bultos declarados'],
+  ['08:11','Escaneado','Depósito · Martín R.','Código CODE_128 · origen del destino: OCR de etiqueta (confianza media)'],
+  ['08:14','Dirección resuelta','Depósito · Martín R.','Av. San Martín 1234, Piso 3 B, Villa Ballester · confirmada manualmente'],
+  ['08:16','Geocodificado','Sistema','−34.5486, −58.5561 · precisión ROOFTOP · desde memoria de direcciones'],
+  ['08:20','Asignado a Ruta 002 · Bulto 17','Sistema','Cluster centro · parada 5 de 42'],
+  ['08:34','Etiqueta impresa','Depósito · Martín R.','Banda violeta · QR interno generado'],
+  ['09:47','Custodia transferida','Federico G. ← Martín R.','42 de 42 bultos · conteo correcto · sin diferencias',true],
+  ['10:02','En reparto','Federico G.','Ruta iniciada · vehículo AB 123 CD'],
+  ['14:31','Llegada al domicilio','Federico G.','',false,true],
+  ['14:33','Entregado','Federico G.','Recibió: Juan Pérez · a 12 m del objetivo',false,true,true]
+];
+function renderTL(){
+  document.getElementById('tlBody').innerHTML = EVENTS.map((e,i)=>{
+    const last = i===EVENTS.length-1;
+    return `<div class="ev">
+      <div class="ev-time">${e[0]}</div>
+      <div class="ev-rail"><div class="ev-line"></div><div class="ev-dot ${last?'ok':''}"></div></div>
+      <div class="ev-body">
+        <div class="ev-act">${e[1]}${e[5]?'<span class="geo"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"/><circle cx="12" cy="10" r="3"/></svg>GPS</span>':''}<span class="ev-who">${e[2]}</span></div>
+        ${e[3]?`<div class="ev-detail">${e[3]}</div>`:''}
+        ${e[6]?`<div class="ev-photo"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2Z"/><circle cx="12" cy="13" r="4"/></svg>Evidencia</div>`:''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ═══════════ NAVEGACIÓN ═══════════ */
+document.querySelectorAll('.tab').forEach(t=>{
+  t.addEventListener('click',()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
+    document.querySelectorAll('.screen').forEach(x=>x.classList.remove('on'));
+    t.classList.add('on');
+    document.getElementById('s-'+t.dataset.s).classList.add('on');
+    if(t.dataset.s==='ops') renderOps();
+    if(t.dataset.s==='driver') appGo(0);
+    if(t.dataset.s==='timeline') renderTL();
+  });
+});
+document.getElementById('themeBtn').addEventListener('click',()=>{
+  const cur = document.documentElement.getAttribute('data-theme');
+  document.documentElement.setAttribute('data-theme', cur==='light'?'dark':'light');
+  render();
+});
+
+render();
+</script>
+</body>
+</html>
