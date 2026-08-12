@@ -45,7 +45,21 @@ async function getAccessToken(): Promise<string | null> {
   return data.session?.access_token ?? null;
 }
 
-/** Llama a la API y devuelve `data` (o tira `ApiClientError` si falla). */
+/**
+ * Llama a la API y devuelve `data` (o tira `ApiClientError` si falla).
+ *
+ * El envelope real es `{ success, data, meta? }` con `meta` como HERMANO
+ * de `data`, no anidado adentro (ver `lib/api/response.ts`). Pero el
+ * contrato que consumen las páginas de listado es `Page<T> = { items,
+ * meta }` — `meta` DENTRO del objeto. Por eso, si la respuesta trae
+ * `meta` y `data` es un objeto, se fusionan acá antes de devolver: es el
+ * único lugar del cliente que conoce el shape crudo del envelope, así
+ * cada página no tiene que hacerlo por separado. Sin esto, `list.data`
+ * quedaba como `{ items }` sin `meta`, y cualquier acceso a
+ * `list.data.meta.total` tiraba `TypeError` en cuanto la pantalla
+ * cargaba — bug real que estuvo así desde FASE 4 sin que nada lo
+ * detectara (no hay verificación en navegador real en este proyecto).
+ */
 export async function apiFetch<T = unknown>(
   path: string,
   init: RequestInit = {},
@@ -76,6 +90,9 @@ export async function apiFetch<T = unknown>(
     );
   }
 
+  if (json.meta !== undefined && typeof json.data === "object" && json.data !== null) {
+    return { ...json.data, meta: json.meta } as T;
+  }
   return json.data as T;
 }
 

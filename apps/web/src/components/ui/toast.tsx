@@ -30,7 +30,17 @@ export function useToast(): ToastApi {
   return ctx;
 }
 
-export function Toaster() {
+/**
+ * `Toaster` es el proveedor del contexto — tiene que ENVOLVER a quien
+ * llame `useToast()`, no ser un hermano suyo en el árbol. Antes se
+ * montaba como `<Toaster />` (sin `children`) al lado de `<main>` en
+ * `AppShell`, lo que dejaba a todas las páginas fuera del Provider —
+ * `useToast()` tiraba en cuanto una pantalla lo llamaba. Nunca se
+ * detectó porque no hay verificación en navegador real en este
+ * proyecto (typecheck/lint/test no ejercitan el árbol de contexto de
+ * React).
+ */
+export function Toaster({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = React.useState<ToastItem[]>([]);
   const idRef = React.useRef(0);
 
@@ -44,6 +54,7 @@ export function Toaster() {
 
   return (
     <ToastContext.Provider value={{ toast }}>
+      {children}
       <div className="pointer-events-none fixed bottom-4 right-4 z-[100] flex flex-col gap-2">
         {toasts.map((t) => (
           <div

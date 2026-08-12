@@ -400,6 +400,25 @@ $env:NODE_ENV="production"; pnpm exec dotenv -e ../../.env -- next build
 Si algo de esto falla, arreglalo antes de seguir avanzando de fase — no construyas FASE 3
 sobre una FASE 2 rota.
 
+**Si tocaste CUALQUIER cosa de UI** (un componente compartido, `AppShell`, `Toaster`,
+`apiFetch`, una página nueva) — typecheck/lint/test/build **no alcanzan**, ninguno ejecuta
+React en un browser real. Corré también:
+
+```bash
+cd apps/web
+$env:NODE_ENV="production"; pnpm exec dotenv -e ../../.env -- next build
+pnpm exec dotenv -e ../../.env -- next start -p 3100   # en otra terminal / background
+pnpm smoke:browser                                      # contra localhost:3100
+# o contra un deploy ya hecho:
+# SMOKE_BASE=https://<tu-deploy>.vercel.app pnpm smoke:browser
+```
+
+Loguea con `admin@fyc.demo`/`FYC123!` y visita las 8 pantallas del panel, fallando si hay
+`pageerror`/`console.error`/request fallido. Ver ADR-040 — así se encontraron dos bugs
+reales de producción (Toaster montado como hermano en vez de ancestro, `apiFetch`
+descartando `meta` de la paginación) que llevaban dormidos desde FASE 4 porque nada en este
+proyecto había cargado una pantalla real en un navegador hasta esa sesión.
+
 ### Rediseño visual (PROMPT-FRONTEND-V2) ✅ — alcance acotado, ver ADR-039
 
 FASE 1 a 6 cerradas, y encima el rediseño visual que Fede pidió explícitamente
@@ -452,23 +471,49 @@ absolute; left:0`, color inyectado por `style`. Aplicada en `RouteCard` de `/rut
   paralelo hubiera duplicado ese trabajo).
 - Pixel a pixel en cada CRUD individual — ya heredan los tokens compartidos desde FASE 4,
   se tocó puntualmente `.font-data` donde hay datos operativos.
-- **Verificación visual real (ojos humanos comparando con el mockup)** — no hay
-  herramienta de captura de pantalla en este entorno. Se verificó con `typecheck`/`lint`/
-  `test`/`build` en verde y un smoke test manual (`next start` + `curl`: HTML 200, ambos
-  bloques de tokens presentes en el CSS compilado, script de `next-themes` inyectando
-  `data-theme`) — pero **Fede todavía no lo vio con sus propios ojos**. Es el primer paso
-  pendiente real de todo este trabajo.
+- **Verificación visual pixel-a-pixel contra el mockup (ojos humanos comparando ambos)**
+  sigue sin hacerse — no hay herramienta de captura de pantalla en este entorno.
+
+### Post-mortem: dos bugs reales de producción encontrados DESPUÉS de deployar el rediseño (ADR-040) ✅ arreglados
+
+Fede abrió el deploy y reportó `Application error: a client-side exception has occurred`.
+**No era falta de fases** — eran dos bugs reales de wiring de React/HTTP, dormidos desde
+FASE 4, que `typecheck`/`lint`/`test`/`build` nunca podían detectar porque ninguno ejecuta
+el árbol de React en un navegador real:
+
+1. `<Toaster/>` (el Provider del contexto de toasts) se montaba como HERMANO de las
+   páginas en `AppShell`, no como ancestro — `useToast()` tiraba apenas una pantalla lo
+   llamaba, y React desmontaba todo. Rompía casi todo el panel (depósito, ruteo, usuarios,
+   vehículos, clientes, contenedores).
+2. `apiFetch()` descartaba `json.meta` de la respuesta — el tipo `Page<T> = {items, meta}`
+   que usan TODAS las pantallas de listado quedaba sin `meta`, y `list.data.meta.total`
+   tiraba `TypeError`. Rompía `/paquetes` específicamente (no usa toasts, por eso ahí se
+   veía un error distinto al del resto).
+
+**Se instaló `playwright-core`** (sin descargar browser, apunta al Chrome del sistema) y se
+creó `apps/web/scripts/smoke-browser.mjs` (`pnpm smoke:browser`) — loguea con el admin del
+seed y visita las 8 pantallas del panel, fallando si hay `pageerror`/`console.error`. Se
+verificó que reproducía los dos bugs contra el deploy roto, se arregló el código, y se
+verificó de nuevo en limpio contra un build local (`next build` + `next start` +
+`smoke:browser`) con las 8 pantallas en verde antes de commitear. **Corré este script
+después de cualquier cambio de UI, antes de darla por terminada** — no hay otra forma en
+este proyecto de saber si una pantalla carga de verdad en un navegador. Ver ADR-040 para el
+detalle completo.
 
 **No hay más fases de backend pendientes en la cola actual.** Lo que sigue, en orden de
 probabilidad:
 
-1. Que Fede revise el resultado visual en el deploy y pida ajustes puntuales.
+1. Que Fede confirme que el deploy ya funciona y revise el resultado visual (comparar con
+   el mockup, ajustes puntuales).
 2. Profundizar el mapa de `/ruteo` (territorios con turf, clustering) si hace falta.
 3. Seguir con FASE 7+ del documento madre (`apps/mobile`, app del chofer) si Fede lo pide.
 
 ## 7. Ritual al cerrar cada fase (no te lo saltees aunque no pares a pedir aprobación)
 
 1. Correr la suite completa (`typecheck`, `lint`, `test`, `build`) y confirmar que da verde.
+   **Si tocaste UI, además corré `pnpm smoke:browser`** (ver §5 y ADR-040) — la suite
+   automatizada no ejecuta React en un navegador real, y ya pasó que algo compilaba,
+   tipaba y pasaba tests perfecto y aun así crasheaba apenas alguien lo abría.
 2. Actualizar `docs/DECISIONES.md` con cualquier decisión no obvia que hayas tomado (ADR
    nuevo, numerado siguiendo el último que exista).
 3. **Actualizar la sección 3 de este mismo archivo (`PROMPT-CONTINUACION.md`)** con el

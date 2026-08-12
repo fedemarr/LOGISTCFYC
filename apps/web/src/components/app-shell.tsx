@@ -86,76 +86,76 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     .join("");
 
   return (
-    <div className="bg-bg text-text flex min-h-screen">
-      <Toaster />
-
-      {/* Sidebar desktop */}
-      <aside className="bg-surface border-border sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r lg:flex">
-        <Brand />
-        <SidebarNav roles={me.user.roles} className="flex-1 overflow-y-auto" />
-        <UserFooter
-          name={me.user.fullName}
-          org={me.orgName}
-          initials={initials}
-          onLogout={handleLogout}
-        />
-      </aside>
-
-      {/* Drawer mobile */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <div
-            className="absolute inset-0 bg-black/40"
-            onClick={() => setMobileOpen(false)}
-            aria-hidden
+    <Toaster>
+      <div className="bg-bg text-text flex min-h-screen">
+        {/* Sidebar desktop */}
+        <aside className="bg-surface border-border sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r lg:flex">
+          <Brand />
+          <SidebarNav roles={me.user.roles} className="flex-1 overflow-y-auto" />
+          <UserFooter
+            name={me.user.fullName}
+            org={me.orgName}
+            initials={initials}
+            onLogout={handleLogout}
           />
-          <aside className="bg-surface absolute inset-y-0 left-0 flex w-72 flex-col shadow-lg">
-            <div className="flex items-center justify-between p-3">
-              <Brand />
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => setMobileOpen(false)}
-                aria-label="Cerrar menú"
-              >
-                <X className="size-4" />
-              </Button>
-            </div>
-            <SidebarNav
-              roles={me.user.roles}
-              onNavigate={() => setMobileOpen(false)}
-              className="flex-1 overflow-y-auto"
-            />
-            <UserFooter
-              name={me.user.fullName}
-              org={me.orgName}
-              initials={initials}
-              onLogout={handleLogout}
-            />
-          </aside>
-        </div>
-      )}
+        </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* Topbar mobile */}
-        <header className="border-border bg-[color:var(--bg)]/90 sticky top-0 z-40 flex items-center gap-2 border-b px-4 py-2 backdrop-blur lg:hidden">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => setMobileOpen(true)}
-            aria-label="Abrir menú"
-          >
-            <Menu className="size-4" />
-          </Button>
-          <span className="text-sm font-semibold">FYC</span>
-          <div className="ml-auto">
-            <ThemeToggle />
+        {/* Drawer mobile */}
+        {mobileOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <div
+              className="absolute inset-0 bg-black/40"
+              onClick={() => setMobileOpen(false)}
+              aria-hidden
+            />
+            <aside className="bg-surface absolute inset-y-0 left-0 flex w-72 flex-col shadow-lg">
+              <div className="flex items-center justify-between p-3">
+                <Brand />
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setMobileOpen(false)}
+                  aria-label="Cerrar menú"
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+              <SidebarNav
+                roles={me.user.roles}
+                onNavigate={() => setMobileOpen(false)}
+                className="flex-1 overflow-y-auto"
+              />
+              <UserFooter
+                name={me.user.fullName}
+                org={me.orgName}
+                initials={initials}
+                onLogout={handleLogout}
+              />
+            </aside>
           </div>
-        </header>
+        )}
 
-        <main className="mx-auto w-full max-w-6xl flex-1 p-4 sm:p-6">{children}</main>
+        <div className="flex min-w-0 flex-1 flex-col">
+          {/* Topbar mobile */}
+          <header className="border-border bg-[color:var(--bg)]/90 sticky top-0 z-40 flex items-center gap-2 border-b px-4 py-2 backdrop-blur lg:hidden">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setMobileOpen(true)}
+              aria-label="Abrir menú"
+            >
+              <Menu className="size-4" />
+            </Button>
+            <span className="text-sm font-semibold">FYC</span>
+            <div className="ml-auto">
+              <ThemeToggle />
+            </div>
+          </header>
+
+          <main className="mx-auto w-full max-w-6xl flex-1 p-4 sm:p-6">{children}</main>
+        </div>
       </div>
-    </div>
+    </Toaster>
   );
 }
 
