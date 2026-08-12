@@ -34,7 +34,17 @@ const config: ExpoConfig = {
   web: {
     favicon: "./assets/favicon.png",
   },
-  plugins: ["expo-dev-client"],
+  plugins: [
+    "expo-dev-client",
+    "expo-router",
+    "expo-sqlite",
+    "expo-secure-store",
+    "expo-font",
+    "expo-splash-screen",
+  ],
+  experiments: {
+    typedRoutes: true,
+  },
   extra: {
     eas: {
       // Se completa con `eas init` cuando haya una cuenta Expo vinculada.

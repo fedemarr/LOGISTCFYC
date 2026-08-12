@@ -414,3 +414,46 @@ ADR-033). Sin `GOOGLE_ROUTES_API_KEY` (todavía no está, ver `.env`), la
 matriz de distancias degrada a una estimación (`estimated: true` en la
 respuesta interna) en vez de fallar — mismo criterio que geocoding
 (ADR-030, ADR-035).
+
+## 12. App móvil — base y sync offline (FASE 7)
+
+Consumidos por `apps/mobile` (ver `docs/DECISIONES.md` ADR-041 para las
+decisiones de alcance). Mismo envelope y auth que el resto de la API
+(Bearer token de Supabase).
+
+### `POST /api/sync`
+
+Motor de sincronización offline-first (§12 del documento madre). Body:
+`{ deviceId, actions: [{ idempotencyKey, operationType, payload, clientTimestamp }] }`
+(máx. 50 acciones por lote). `idempotencyKey` es un UUID generado en el
+dispositivo al encolar la acción localmente — reenviar el mismo lote
+(reintento tras reconectar) es siempre seguro, el servidor dedupe por esa
+clave contra `sync_queue` antes de aplicar ningún efecto.
+
+`operationType` — únicamente `"GPS_PING"` por ahora (`SYNC_OPERATION_TYPES`
+en `@fyc/shared`; agregar uno nuevo es sumarlo ahí + un `case` en
+`lib/services/sync.ts`). Payload de `GPS_PING`:
+`{ lat, lng, accuracyM?, speedMps?, heading?, batteryLevel?, isMoving?, routeId? }`.
+
+Respuesta: `{ results: [{ idempotencyKey, status, error? }] }`, un
+resultado por acción del lote (una falla no aborta las demás):
+
+- `COMPLETED` — se aplicó ahora.
+- `DUPLICATE` — ya se había aplicado antes (mismo `idempotencyKey`); el
+  cliente puede borrarla de su outbox local igual, el efecto ya está.
+- `FAILED` — el payload no pasó la validación de ese `operationType`;
+  queda en `sync_queue` con `status: FAILED` y `last_error` para
+  diagnóstico. El cliente no la borra de su outbox — reintenta con
+  backoff (§12: 5s, 15s, 1m, 5m, 15m, 1h).
+
+### `GET /api/driver/route/current`
+
+**driver.** La ruta activa del chofer autenticado con todas sus paradas —
+"descarga completa de la ruta a local" (§14 FASE 7). Devuelve
+`{ route: {...} | null, stops: [...] }`; `route: null` si no tiene
+ninguna ruta en estado `APPROVED`/`ASSIGNED`/`LOADING`/`LOADED`/
+`IN_TRANSIT` (ver ADR-041 punto 3 sobre por qué incluye `APPROVED`). Cada
+parada trae dirección, contacto, coordenadas, `bulkNumber` (ya congelado
+si la ruta está aprobada) y `operationalNotes` (ej. "timbre no anda",
+§9.5) — todo lo que la app necesita para operar el resto del día sin
+pedir nada más por red.

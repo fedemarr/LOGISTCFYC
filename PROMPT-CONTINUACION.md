@@ -49,10 +49,12 @@ autorización:
 
 **Último commit en `main`:** revisá `git log --oneline -10` al arrancar — este documento
 puede quedar desactualizado si una sesión anterior avanzó más y no llegó a actualizarlo.
-Al día de escribir esto: FASE 1 a 6 **cerradas**, y el rediseño visual del panel real
-(`PROMPT-FRONTEND-V2.md` + `mockup.html`) también **aplicado** con alcance acotado (ver
-ADR-039 y el detalle en §6) — todavía sin que Fede lo haya visto con sus propios ojos en el
-deploy, eso es lo primero que falta.
+Al día de escribir esto: FASE 1 a 7 **cerradas** (backend completo + base de
+`apps/mobile`), y el rediseño visual del panel real (`PROMPT-FRONTEND-V2.md` + `mockup.html`)
+también **aplicado** con alcance acotado (ver ADR-039). Dos bugs reales de producción
+encontrados y arreglados post-deploy (ADR-040) — el deploy hoy carga limpio, verificado con
+`smoke:browser`. Fede pidió explícitamente seguir con FASE 7 en adelante ("seguimos con fase
+7 y para adelante") — el trabajo que sigue es FASE 8 (escaneo + OCR), ver §6.
 
 **Repo:** `https://github.com/fedemarr/LOGISTCFYC` (rama `main`). El working tree debería
 estar limpio; si no lo está, mirá qué quedó a medio hacer antes de seguir.
@@ -354,6 +356,79 @@ ajuste manual → aprobar → etiquetas):
    afectadas** en cada movimiento (no un ajuste incremental, ver ADR-036) — barato al
    volumen de §17 (~40 paradas/ruta) pero no pensado para un loop de mover-muchos-rápido.
 
+### FASE 7 — App mobile: base y offline ✅ (ver ADR-041)
+
+Backend + base real de `apps/mobile` (antes solo tenía el scaffolding de FASE 1 — un
+`App.tsx` con un texto fijo). Antes de tocar código se leyó `apps/mobile/AGENTS.md`
+("Expo HAS CHANGED — leé los docs versionados") y se verificaron con WebFetch los patrones
+actuales de Expo Router/expo-sqlite para SDK 57 en vez de asumir versiones viejas.
+
+**Backend nuevo:**
+
+- `POST /api/sync` — motor de sincronización offline-first (§12), dedupe por
+  `idempotencyKey` contra `sync_queue` (tabla que ya existía desde FASE 2, sin usar hasta
+  ahora) ANTES de aplicar cualquier efecto. Un solo `operationType` implementado
+  (`GPS_PING`, en `@fyc/shared`) — alcanza para probar el patrón completo sin depender de
+  reglas de negocio de FASE 9/10/12 que todavía no existen. Agregar uno nuevo: sumarlo a
+  `SYNC_OPERATION_TYPES` + un `case` en `lib/services/sync.ts`.
+- `GET /api/driver/route/current` — "descarga completa de la ruta a local". Acepta rutas
+  `APPROVED` (no solo `ASSIGNED+`) porque la transición real `APPROVED→ASSIGNED` es la toma
+  de custodia de FASE 9, que no existe todavía (ver ADR-041 punto 3 — importante si tocás
+  esto, no lo "arregles" sacando `APPROVED` sin haber hecho FASE 9 antes).
+- `lib/services/driver.ts` (`getDriverCurrentRoute`) y `lib/services/sync.ts`
+  (`processSyncBatch`) — testeados con 6 tests de integración contra Supabase real, incluido
+  el criterio de aceptación exacto de la fase (5 acciones, reenviar el mismo lote como al
+  reconectar, verificar que quedan exactamente 5 filas en `sync_queue`, no 10).
+
+**`apps/mobile` — de scaffolding vacío a app real:**
+
+- Expo Router (`app/`) reemplazó el `App.tsx`/`index.ts` de FASE 1 — patrón
+  `Stack.Protected` para gatear `(driver)` vs `login`/`onboarding` según sesión
+  (`src/context/session.tsx`, `useSession()`).
+- Auth: mismas credenciales que el panel (Supabase Auth), sesión persistida con
+  `expo-secure-store` (Keychain/Keystore, no `AsyncStorage`).
+- Cliente API (`src/lib/api.ts`) — mismo patrón que el del panel, **con el mismo fix de
+  `meta` aplicado desde el día uno** (ver ADR-040): si algún día se olvida en un cliente
+  nuevo, es el mismo bug de vuelta.
+- SQLite local (`expo-sqlite`, API moderna `SQLiteProvider`/`useSQLiteContext`):
+  `local_route`/`local_stop` (espejo de la ruta descargada) + `outbox` (acciones pendientes
+  de sync, con `idempotency_key`, `attempts`, `next_attempt_at`).
+- Motor de sync (`src/lib/sync/`): `outbox.ts` (I/O de SQLite) separado de `backoff.ts` y
+  `mapper.ts` (lógica pura, sin imports de RN — testeada con Vitest, 8 tests). Backoff exacto
+  de §12: 5s, 15s, 1m, 5m, 15m, 1h. Disparado por reconexión de red (`NetInfo`) + timer cada
+  30s mientras la app está abierta (`useSyncEngine`, foreground únicamente — background con
+  `expo-task-manager` es FASE 11, no una omisión).
+- Design tokens (`src/theme/tokens.ts`) — copia en JS de los hex del panel web (RN no tiene
+  CSS). Dark mode fijo y obligatorio (§13), a diferencia del panel que tiene los dos temas.
+- Onboarding (5 pantallas, salteable) + login + pantalla de inicio (estado de conexión,
+  badge de pendientes, descargar ruta, toggle "EN SERVICIO" — este último es solo UI todavía,
+  las validaciones bloqueantes de §9.4 son FASE 9/10).
+- Dependencias nativas de fases futuras ya instaladas de una (`expo-camera`,
+  `expo-image-picker`, `expo-location`, `expo-task-manager`, `expo-notifications`) — evita
+  volver a pasar por `expo install` fase por fase, pero todavía no se usan en código.
+
+**Gotchas nuevos de FASE 7 — no los vuelvas a pisar:**
+
+1. **`apps/mobile` necesita su PROPIO `.env`** (nuevo, gitignored, en `apps/mobile/.env`) —
+   Expo lee `EXPO_PUBLIC_*` desde la raíz de ese paquete, no desde el `.env` del monorepo
+   (a diferencia de `apps/web`, que lo carga explícito con `dotenv -e ../../.env`). Si
+   `EXPO_PUBLIC_API_URL`/`EXPO_PUBLIC_SUPABASE_URL`/`EXPO_PUBLIC_SUPABASE_ANON_KEY` faltan ahí,
+   la app no arranca — copiá los valores del `.env` raíz (`apps/mobile/.env.example` documenta
+   cuáles).
+2. **`expo-status-bar`'s `<StatusBar/>` no tiene prop `backgroundColor`** (eso es del
+   `StatusBar` de `react-native` core) — si hace falta, usar `expo-system-ui` en su lugar.
+3. **Vitest en mobile solo corre `src/lib/**`** (`vitest.config.ts` con `include`
+   acotado) — nada de React Native ahí adentro. Las pantallas de `app/` no tienen test
+   automatizado (ver ADR-041 punto 8) — se verifican con `pnpm typecheck`/`pnpm lint` +
+   dispositivo real. Si agregás lógica nueva con reglas (no solo JSX), ponela en `src/lib/`
+   pura y testeala ahí, no la mezcles en el componente.
+4. **`pnpm exec expo install <paquete>`, nunca `pnpm add` a mano, para dependencias
+   nativas** — resuelve la versión exacta compatible con el SDK (57.0.0 acá). `pnpm add`
+   directo (sin `expo install`) está bien solo para paquetes puramente JS sin código nativo
+   (`zustand`, `@supabase/supabase-js`, `@fyc/shared`).
+5. **`main` en `package.json` es `"expo-router/entry"`**, no un `index.ts` propio — no lo
+   vuelvas a cambiar a mano, rompe toda la navegación.
+
 ## 4. Credenciales — dónde están, qué falta
 
 Todo lo que ya se consiguió está en `.env` (raíz, **no está en git**, no lo va a encontrar
@@ -373,7 +448,11 @@ cuando llegues ahí, no antes):
 - `NEXT_PUBLIC_MAPTILER_KEY` — opcional. El mapa de `/ruteo` usa tiles gratuitos de Carto
   (`dark-matter`/`positron`) que no la necesitan; solo hace falta si en algún momento se
   quiere el estilo `dataviz` de MapTiler que pide el documento originalmente.
-- Cuenta de Expo/EAS para builds de distribución — FASE 7 en adelante
+- Cuenta de Expo/EAS vinculada (`eas init`, completa `extra.eas.projectId` en
+  `apps/mobile/app.config.ts`, hoy `undefined`) — hace falta para builds de dispositivo real
+  (development build, ya que el proyecto usa `expo-dev-client` y NO corre en Expo Go) y para
+  Play Store en FASE 14. `pnpm exec expo start --dev-client` sin esto no conecta a un
+  development build instalado.
 - `SENTRY_DSN` — FASE 13
 - Datos de negocio de la sección 20 del documento madre (nombre del rol dispatcher, tipo de
   impresora, ubicación del depósito, capacidad de vehículos, tarifas, etc.)
@@ -500,13 +579,48 @@ después de cualquier cambio de UI, antes de darla por terminada** — no hay ot
 este proyecto de saber si una pantalla carga de verdad en un navegador. Ver ADR-040 para el
 detalle completo.
 
-**No hay más fases de backend pendientes en la cola actual.** Lo que sigue, en orden de
-probabilidad:
+### Verificar `apps/mobile` (nuevo desde FASE 7)
 
-1. Que Fede confirme que el deploy ya funciona y revise el resultado visual (comparar con
-   el mockup, ajustes puntuales).
-2. Profundizar el mapa de `/ruteo` (territorios con turf, clustering) si hace falta.
-3. Seguir con FASE 7+ del documento madre (`apps/mobile`, app del chofer) si Fede lo pide.
+```bash
+cd apps/mobile
+pnpm typecheck
+pnpm lint
+pnpm test                          # solo src/lib/** (lógica pura), ver ADR-041 punto 8
+pnpm exec expo start --dev-client  # necesita un development build instalado en el
+                                    # dispositivo/emulador y EAS vinculado (ver §4) — no
+                                    # corre en Expo Go (expo-dev-client, decisión de FASE 1)
+```
+
+No hay build de producción "local" para mobile como el `next build` de web — el equivalente
+es `eas build`, que necesita la cuenta de Expo vinculada (§4, todavía no conseguida).
+
+## 6. Qué sigue: FASE 8 — Escaneo móvil y OCR
+
+FASE 1 a 7 cerradas. Fede confirmó explícitamente seguir fase por fase hacia adelante
+("seguimos con fase 7 y para adelante") — el ritual de §7 sigue aplicando sin pausas entre
+fases salvo que él pida parar.
+
+**FASE 8 (§14 del documento madre) — alcance esperado:**
+
+- Cámara con escaneo de códigos multiformato (usar `expo-camera`, ya instalado desde FASE 7).
+- Captura de foto de etiqueta con guía de encuadre, flash automático, **rechazo de fotos
+  borrosas**.
+- OCR on-device con ML Kit + parser de direcciones argentinas — vas a necesitar evaluar si
+  hay un wrapper de Expo para ML Kit o si hace falta un módulo nativo custom (investigar
+  antes de asumir; `expo-image-picker` ya está instalado pero no hace OCR por sí solo).
+- Pantalla de confirmación: foto a un lado, campos editables al otro.
+- Modo depósito (rol `warehouse`): escaneo en loop de alta velocidad.
+- Feedback sonoro y háptico diferenciado: OK / duplicado / error.
+- Esto es del lado `apps/mobile` — el backend de resolución de códigos ya existe
+  (`resolveDestination()`/`scanPackage()` de FASE 5, `apps/web/src/lib/services/ingestion.ts`)
+  y ya tiene el escalón OCR definido en la cascada pero deferred (ADR-029) — FASE 8 es
+  también el momento de implementarlo del lado servidor si el flujo de mobile lo necesita
+  (mandar la foto + texto reconocido on-device, o mandar la foto cruda para que el servidor
+  la procese — decisión a tomar viendo qué tan bueno es el OCR on-device en la práctica).
+- **Criterio de aceptación (§14):** escanear 20 etiquetas reales y medir el % de campos
+  correctos del OCR. Documentar el resultado — no es un número inventable, hace falta
+  probarlo con etiquetas de verdad (pedirle a Fede fotos reales si no hay forma de conseguir
+  paquetes físicos para probar).
 
 ## 7. Ritual al cerrar cada fase (no te lo saltees aunque no pares a pedir aprobación)
 

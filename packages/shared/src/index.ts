@@ -2,5 +2,6 @@
 
 export * from "./constants/roles";
 export * from "./types/ingestion";
+export * from "./types/sync";
 export * from "./lib/barcode";
 export * from "./lib/normalize-address";
