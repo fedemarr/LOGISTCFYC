@@ -16,7 +16,7 @@ import type { RouteDetail, RouteItem } from "@/lib/api/client";
  * arrastrar-para-mover-de-ruta sobre el pin — eso queda para cuando haya
  * volumen real que lo justifique.
  *
- * Leaflet, no MapLibre GL (ver docs/DECISIONES.md ADR-044): MapLibre v6
+ * Leaflet, no MapLibre GL (ver docs/DECISIONES.md ADR-043): MapLibre v6
  * carga su worker de tiles como módulo ES (`maplibre-gl-worker.mjs`) —
  * en producción (Vercel) ese chunk devolvía el fallback HTML de Next en
  * vez del JS, y el navegador lo rechazaba por MIME type ("Failed to load
