@@ -6,4 +6,4 @@
 // necesitan (FASE 2 modelo de datos, FASE 3 backend) para no adivinar
 // forma de datos que todavía no está migrada.
 
-export * from "./constants/roles.js";
+export * from "./constants/roles";

@@ -49,20 +49,20 @@ autorización:
 
 **Último commit en `main`:** revisá `git log --oneline -10` al arrancar — este documento
 puede quedar desactualizado si una sesión anterior avanzó más y no llegó a actualizarlo.
-Al día de escribir esto: `0fd0a52` — FASE 2 cerrada, FASE 3 **en curso** (ver abajo).
+Al día de escribir esto: FASE 1, 2 y 3 **cerradas**, FASE 4 **en curso** (ver abajo).
 
 **Repo:** `https://github.com/fedemarr/LOGISTCFYC` (rama `main`). El working tree debería
 estar limpio; si no lo está, mirá qué quedó a medio hacer antes de seguir.
 
-**Deploy:** `apps/web` está en Vercel (proyecto `fmcodes-projects/web`) —
-`https://web-fmcodes-projects.vercel.app` (protegido por Vercel Authentication, solo
-accesible logueado con esa cuenta). El deploy se dispara solo con cada push a `main` (Git
-integration ya conectada). Ver `docs/DECISIONES.md` ADR-012 antes de tocar la config de
-Vercel — el Root Directory quedó en la raíz del repo con comandos explícitos en
-`vercel.json` porque no se pudo cambiar el Root Directory a `apps/web` desde acá (es
-dashboard-only). **Antes de que FASE 3 agregue Route Handlers reales, confirmar con Fede
-que las funciones serverless se sirven bien en Vercel con esa config** (probarlo con un
-endpoint de prueba apenas exista).
+**Deploy:** `apps/web` está en Vercel (proyecto `fmcodes-projects/web`, usuario
+`fedenez11-4576`). Deploy actual de prod:
+`https://web-2842cb7py-fmcodes-projects.vercel.app` (protegido por Vercel Authentication,
+solo accesible logueado con esa cuenta). El deploy se dispara solo con cada push a `main`.
+**Config de Vercel:** el Root Directory quedó en la raíz del repo con comandos explícitos
+en `vercel.json` (ver ADR-012). **Pendiente en Vercel:** agregar la env var
+`SUPABASE_SERVICE_ROLE_KEY` (la key ya está en `.env` local) — sin ella,
+`POST /api/users` falla en producción (el alta de usuarios del panel necesita el service
+role para crear el usuario en Supabase Auth; ver ADR-024).
 
 ### FASE 1 — Scaffolding ✅ (commits `a40988a`, `afbc85b`, `1fda482`)
 
@@ -115,59 +115,89 @@ state-machine`, `@fyc/shared`) dentro de `drizzle.config.ts` o los archivos de
    autorización real del backend es responsabilidad del middleware de FASE 3 — no asumas
    que "tiene RLS" alcanza.
 
-### FASE 3 — Core de dominio y backend 🚧 EN CURSO (commit `0fd0a52`)
+### FASE 3 — Core de dominio y backend ✅ (commit `0b195b4`, fixes Vercel después)
+
+`packages/state-machine` **completo y cerrado** (67 tests, 100% cobertura, threshold 80%):
+tabla de transiciones fiel al diagrama de §4 + matriz de permisos de §3, precondiciones
+(evidencia+GPS para `ENTREGADO`, foto para `FALLA_REPORTADA`, motivo para excepciones),
+`validateTransition()` puro y `transition()` por inyección de dependencias.
+
+Backend de `apps/web` completo: middleware de auth en `apps/web/src/middleware.ts` que
+valida el JWT de Supabase contra el Edge runtime y setea `x-fyc-user-id`;
+`requireUser`/`requireRole`; envelope de respuesta estándar `{ success, data, meta }` /
+`{ success, error: { code, message } }` (`lib/api/response.ts`); `AppError` + `toAppError`
+(`lib/api/errors.ts`); Zod en TODOS los inputs (`parseBody`/`parseQuery`/`parseParams`);
+paginación offset (`paginationFrom`/`paginationMeta`); rate limiting con ventana fija
+atómica sobre la tabla `rate_limits` (`consumeRateLimit`); logger estructurado
+(`lib/api/logger.ts`); `GET /api/packages` + `POST /api/packages/:id/transition` como
+patrón de referencia; `lib/services/state-machine.ts` orquesta la transición en una
+`db.transaction` con lock `FOR UPDATE` y escribe el evento en la MISMA transacción.
+`docs/API.md` documenta todo el patrón. Suite completa verde.
+
+**Inferencias documentadas** (no estaban explícitas en el documento madre, ver ADR): (a)
+`DANIADO` no es final — mismo abanico de resolución que `FALLA_REPORTADA`; (b) reabrir un
+estado final (solo `admin`) vuelve a `GEOCODIFICADO`.
+
+### Rebranding a FYC ✅ (commit `3c9bd4d`, desplegado y verificado)
+
+Rename completo `lastmile → fyc`: paquetes `@fyc/*`, header interno `x-fyc-user-id`,
+bundle id de la app móvil `com.fyc.mobile`, emails de seed `@fyc.demo` (contraseña
+`FYC123!`; los usuarios viejos `@lastmile.demo` siguen en Supabase Auth pero ya no están
+en el seed). Se preservó intencionalmente la tabla interna `_lastmile_migrations` en la DB
+desplegada (renombrarla re-aplicaría migraciones). Prueba del deploy:
+`https://web-2842cb7py-fmcodes-projects.vercel.app` responde 200.
+
+### FASE 4 — Panel web: base 🚧 EN CURSO
 
 **Ya hecho:**
 
-- `packages/state-machine` **completo y cerrado**: tabla de transiciones fiel al diagrama de
-  §4 + matriz de permisos de §3 (`src/transitions.ts`), precondiciones (`src/preconditions.ts`
-  — evidencia+GPS para `ENTREGADO`, foto obligatoria para `FALLA_REPORTADA`, motivo para
-  estados de excepción, motivo de corrección para reabrir finales), `validateTransition()`
-  puro (sin I/O, usable desde `apps/mobile` para decidir qué botón mostrar) y `transition()`
-  que recibe `TransitionDeps` (`getCurrentStatus`/`applyTransition`) por **inyección de
-  dependencias** — el package sigue sin saber nada de Postgres. 67 tests, **100% de
-  cobertura** (`pnpm --filter @fyc/state-machine test:coverage`), threshold de 80%
-  configurado en `vitest.config.ts` del package.
-- Dos inferencias documentadas que no estaban explícitas en el documento madre (revisar si
-  hace sentido de negocio real cuando se pueda preguntar): (a) `DANIADO` no es final en el
-  diagrama, se le dio el mismo abanico de resolución que `FALLA_REPORTADA`; (b) reabrir un
-  estado final (solo `admin`) vuelve a `GEOCODIFICADO`, el documento no dice a qué estado.
+- **Sesión del panel:** login en `app/(auth)/login/page.tsx` con supabase-js (browser,
+  localStorage) y `Authorization: Bearer` hacia la API (client-side a propósito, ADR-021).
+  `app-shell.tsx` + `sidebar.tsx` renderizan el sidebar por rol (usuarios solo admin;
+  vehículos/clientes/contenedores lectura admin/dispatcher/warehouse; driver solo
+  Inicio/Paquetes) y el logout. Dashboard en `app/(panel)/page.tsx` (conteos vía
+  `meta.total` con `pageSize=1`).
+- **API del panel:** `GET /api/auth/me` + CRUD completo de `/api/users`, `/api/vehicles`,
+  `/api/clients`, `/api/containers` (list+create, y `[id]` con GET/PATCH/DELETE soft).
+  Alta de usuarios via `lib/services/users.ts` (service role: crea auth + perfil + roles,
+  ver ADR-024). Client HTTP: `lib/api/client.ts` (`apiFetch`, `ApiClientError`, tipos).
+- **UI (Base UI 1.7, ver ADR-023):** primitivas en `apps/web/src/components/ui/` (input,
+  label, textarea, select, checkbox, badge, card, skeleton, table, dialog, alert-dialog,
+  dropdown-menu, toast, pagination) + `states.tsx` (Empty/Error/TableSkeleton) +
+  `page-header`, `search-bar`, `row-actions`, `confirm-delete`, `role-badge`.
+- **Páginas CRUD:** listas + alta + edición de usuarios, vehículos, clientes y
+  contenedores (búsqueda, paginación, estados loading/empty/error, soft delete con
+  AlertDialog y toast), y la lista de paquetes (status badges con colores semánticos).
+  Todo bajo la route group `app/(panel)/` (el dashboard reemplazó al viejo
+  `src/app/page.tsx`, que se eliminó).
+- Tests de integración de `lib/services/users.ts` (alta/edición/soft delete/email duplicado
+  → CONFLICT) contra Supabase real. Suite completa verde + build web en producción.
 
-**Falta (en este orden, es lo que sigue ahora mismo):**
+**Gotchas nuevos de FASE 4 — no los vuelvas a pisar:**
 
-1. `apps/web/src/lib/services/state-machine.ts` — conectar `TransitionDeps` a Drizzle: abrir
-   una `db.transaction()`, leer `packages.status` con `FOR UPDATE` (lock de fila, evita
-   condiciones de carrera entre dos transiciones concurrentes del mismo paquete), hacer el
-   `UPDATE packages SET status = ...` y llamar a `select public.log_event(...)` (la función
-   `SECURITY DEFINER` de la migración `0001`) — todo dentro de la misma transacción. Si el
-   evento falla, todo se revierte (ya lo garantiza la transacción de Postgres).
-2. `AppError` (clase de error de dominio con `code`/`message`/`httpStatus`) + el envoltorio
-   de respuesta estándar `{ success, data, meta }` / `{ success, error: { code, message } }`
-   — probablemente en `apps/web/src/lib/api/`.
-3. Logger estructurado (nada de `console.log` fuera de los scripts de CLI ya exceptuados en
-   `apps/web/eslint.config.mjs`) — evaluar `pino` (liviano, funciona bien en Vercel) vs. algo
-   casero mínimo; no hace falta un servicio externo todavía, eso es Sentry en FASE 13.
-4. Auth: middleware que valida la sesión de Supabase y resuelve los roles del usuario
-   (`user_roles`) antes de dejar pasar una request — **esto es lo que realmente autoriza al
-   backend**, no RLS (ver gotcha #5). Un buen lugar: `apps/web/src/middleware.ts` (Next.js
-   middleware) + un helper `requireRole(...)` para usar dentro de cada Route Handler.
-5. Zod: un helper genérico para validar `body`/`query` en los Route Handlers y devolver un
-   `AppError` de validación bien formado si falla.
-6. Al menos un Route Handler real de punta a punta (ej. `GET /api/packages` con paginación,
-   o `POST /api/packages/:id/transition`) como **patrón de referencia** — no hace falta
-   CRUD completo de todos los módulos en esta fase, pero sí que el patrón quede probado y
-   documentado para que las fases siguientes lo repliquen sin reinventarlo.
-7. Rate limiting — sin Redis (regla del documento madre, §5). Evaluar una tabla de Postgres
-   simple (`rate_limits` o similar) dado que ya se paga la conexión a Postgres en cada
-   request de todos modos.
-8. `docs/API.md` documentando el patrón (respuesta estándar, cómo se valida, cómo se
-   autoriza, paginación, rate limiting) y los endpoints que existan hasta acá.
-9. Cerrar: correr la suite completa, actualizar esta sección a "✅", commit + push.
+1. **Build local de `apps/web`:** requiere `$env:NODE_ENV="production"` (el `.env` raíz tiene
+   `NODE_ENV=development` que rompe el prerender) **y** cargar el `.env` raíz con
+   `pnpm exec dotenv -e ../../.env -- next build` desde `apps/web` (la DB real se usa al
+   recolectar page data de los Route Handlers). En Vercel no pasa nada de esto. Comando que
+   funciona:
+   `$env:NODE_ENV="production"; pnpm exec dotenv -e ../../.env -- next build`
+   (desde `apps/web`).
+2. **Base UI 1.7 no tiene `Slot` ni `asChild`** (eso es de Radix/shadcn). Para polimorfismo
+   se usa el prop `render` (ej. `<Button render={<Link href="..." />}>`). Un snippet de
+   shadcn con `asChild`/`@base-ui/react/slot` rompe el typecheck — traducilo a `render`.
+3. **`@fyc/shared` barrel:** el `export * from "./constants/roles.js"` (con `.js`) hace
+   fallar a webpack de Next (no lo resuelve a `.ts`). Se cambió a extensionless
+   (`./constants/roles`). No reintroduzcas `.js` en los barrels de los packages.
+4. **`eq(col, null)` en Drizzle tipa mal** — usar `isNull(col)` (los `[id]` y listados de
+   FASE 4 lo usan). El `deleted_at` de `users` es `PgTimestamp` con data `Date`.
+5. **Stale `.next`:** al eliminar `src/app/page.tsx` el typecheck rompía con referencias
+   fantasma (`Cannot find module .../app/page.js`). Se resuelve borrando `apps/web/.next`.
 
-**Antes de escribir Route Handlers:** confirmar en Vercel (ver nota de la sección 3 más
-arriba) que las funciones serverless se sirven bien con la config actual de `vercel.json` —
-si no, es el momento de pedirle a Fede que mueva el Root Directory a `apps/web` desde el
-dashboard, porque a partir de acá ya importa de verdad.
+**Falta (lo que sigue ahora mismo):**
+
+1. `app/(panel)/paquetes` ya está como lista; si hace falta el detalle de paquete y las
+   acciones de transición del panel, es alcance de la próxima sub-fase de FASE 4.
+2. Cerrar: correr la suite completa, actualizar esta sección a "✅", commit + push.
 
 ## 4. Credenciales — dónde están, qué falta
 
@@ -178,7 +208,8 @@ lo reconstruyas con placeholders y sigas de largo.
 
 Ya conseguido (Supabase project `xdhjxecrozcozcstndbr`, región `sa-east-1`): URL, anon key,
 service role key, `DATABASE_URL` (session pooler). GitHub conectado. Vercel deployado y con
-Git integration activa.
+Git integration activa. **La `SUPABASE_SERVICE_ROLE_KEY` está en `.env` local pero FALTA
+agregarla en Vercel** (sin ella `POST /api/users` falla en producción — ver ADR-024).
 
 **Todavía NO conseguido** (vas a necesitarlo en las fases que siguen — pedíselo a Fede
 cuando llegues ahí, no antes):
@@ -198,42 +229,33 @@ git log --oneline -5              # confirmá en qué commit estás parado
 git status                        # debería estar limpio
 
 pnpm install
-pnpm exec turbo run typecheck lint test build --force   # las 6 packages, debería dar todo verde
+pnpm exec turbo run typecheck lint test --force   # las 6 packages, debería dar todo verde
 
 cd apps/web
 pnpm db:migrate                   # idempotente, no debería aplicar nada nuevo
 pnpm db:verify                    # chequeo rápido de RLS/particiones/PostGIS
 pnpm test                         # tests de RLS contra Supabase real
+
+# Build de web en local (ver gotcha de NODE_ENV en la sección 3):
+$env:NODE_ENV="production"; pnpm exec dotenv -e ../../.env -- next build
 ```
 
 Si algo de esto falla, arreglalo antes de seguir avanzando de fase — no construyas FASE 3
 sobre una FASE 2 rota.
 
-## 6. Qué sigue: FASE 3 — Core de dominio y backend
+## 6. Qué sigue: FASE 4 — Panel web (resto de la base)
 
-Del documento madre, §14, FASE 3:
+FASE 4 (del documento madre §14) está **en curso**: el login, el shell con sidebar por rol,
+los CRUD de usuarios/vehículos/clientes/contenedores, la lista de paquetes y el design
+system ya están. Lo que sigue de la base del panel:
 
-- `packages/state-machine`: implementar `PackageStateMachine.transition()` de verdad — hoy
-  es un placeholder que tira `Error` a propósito (`packages/state-machine/src/index.ts`).
-  Necesita: tabla de transiciones legales/ilegales completa (diagrama de §4), validación de
-  permisos por rol (matriz de §3), precondiciones (ej. `ENTREGADO` exige evidencia + GPS),
-  escritura transaccional en `events` en la MISMA transacción (usar `log_event()` de la
-  migración 0001, o replantear si hace falta — está `SECURITY DEFINER` así que hay que
-  llamarlo con una conexión que tenga permiso de ejecutarlo). Tests unitarios de **todas**
-  las transiciones legales e ilegales — el criterio de aceptación pide >80% de cobertura acá.
-- Servicio de eventos: append-only, transaccional con cada transición (ver arriba).
-- Auth con Supabase + middleware de roles y permisos — **esto es lo que realmente
-  autoriza al backend**, no solo RLS (ver gotcha #5 arriba). Definí cómo el backend valida
-  sesión/rol antes de ejecutar una acción.
-- Route Handlers por módulo en `apps/web/src/app/api/`, validación Zod en TODOS los inputs.
-- Manejo de errores centralizado (`AppError`), respuesta estándar
-  `{ success, data, meta }` / `{ success, error: { code, message } }`.
-- Paginación en todos los endpoints de lista. Rate limiting. Logger estructurado (nada de
-  `console.log` fuera de los scripts de CLI ya exceptuados).
-- `docs/API.md`.
+- Detalle de paquete y acciones de transición (delivery) desde el panel si corresponde a la
+  fase (ver `PROMPT-MAESTRO-CLAUDE-CODE.md` §14 FASE 4 para el alcance exacto).
+- Cerrar la fase: suite completa verde, actualizar la sección 3 de este archivo, commit +
+  push.
 
-**Antes de escribir código de FASE 3:** releé la matriz de permisos completa de §3 y la
-máquina de estados de §4 del documento madre — no las reinterpretes de memoria.
+Recordá: los CRUD y sus forms ya existen y funcionan (búsqueda, paginación, estados
+empty/loading/error, soft delete con confirmación). No los reescribas — extendelos.
 
 ## 7. Ritual al cerrar cada fase (no te lo saltees aunque no pares a pedir aprobación)
 

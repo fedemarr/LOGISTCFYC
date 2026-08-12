@@ -127,3 +127,29 @@ Registro de cada decisión técnica y su porqué. Formato: **Decisión → Conte
 **Decisión:** la inmutabilidad de `events` se garantiza con la combinación de: (a) el trigger `events_forbid_delete` sobre la tabla (revienta ante cualquier UPDATE/DELETE **sin importar el rol**, ver ADR-016) y (b) la convención de que **ningún módulo de la app emite UPDATE/DELETE contra `events`** — se audita en code review. El único `DELETE FROM events` del código vive en tests de integración, y corre con el trigger deshabilitado a propósito (`ALTER TABLE ... DISABLE TRIGGER`) para poder limpiar la base de prueba.
 **Contexto:** en FASE 3 el test de integración de la máquina de estados confirmó que el trigger realmente bloquea el borrado; si el test intentara borrar eventos sin deshabilitarlo primero, fallaría.
 **Consecuencias:** la limpieza de datos de prueba requiere deshabilitar el trigger en `afterAll`; hay que re-habilitarlo siempre, aunque el test falle (se hace en el mismo `finally`/`afterAll`, nunca con `try/catch` que lo deje desactivado).
+
+## ADR-021 — Sesión del panel es client-side (supabase-js + Bearer), no SSR
+
+**Decisión:** el panel autentica con `@supabase/supabase-js` en el browser (sesión en localStorage) y cada request del cliente adjunta `Authorization: Bearer <JWT>`. El middleware de `/api/*` valida el JWT como en mobile. NO hay cookies de sesión ni auth SSR con server components.
+**Contexto:** FASE 4 necesitaba login y CRUD del panel. El middleware de `apps/web/src/middleware.ts` ya valida el JWT para toda `/api/*`; reutilizar ese camino para la sesión del panel es lo que menos superficie nueva agrega, y el modelo de roles se resuelve igual en el handler (`requireUser`/`requireRole`) leyendo `users`/`user_roles` por `x-fyc-user-id`.
+**Alternativas:** cookies httpOnly + SSR auth (`@supabase/ssr`). Más trabajo de integración (rewrite de rutas, refresh de sesión en server) y duplica el mecanismo de auth con el que ya funciona mobile.
+**Consecuencias:** el primer render de las páginas del panel no conoce la sesión (flash controlado por el app shell con estado `loading`); toda mutación pasa por la API (no hay writes directos desde server components). Si en una fase futura se necesita SSR real (p. ej. SEO, metadatos por rol), es una decisión nueva que referencia a esta.
+
+## ADR-022 — Los CRUD del panel también usan soft delete (regla global)
+
+**Decisión:** `users`, `vehicles`, `clients` y `containers` no se borran físicamente: el `DELETE` de la API setea `deleted_at` (y `is_active=false` para usuarios, lo que además rompe el login). Los listados filtran `deleted_at IS NULL` siempre.
+**Contexto:** la regla global "nunca borrado físico, siempre soft delete" (documentada para `events` en ADR-020) se extiende a los datos maestros del panel: un usuario/vehículo/cliente dado de baja sigue existiendo para auditoría y reportes.
+**Alternativas:** borrado físico con cascada. Perdería trazabilidad y complicaría los reportes históricos de FASE 12/13.
+**Consecuencias:** el listado de usuarios para el form de vehículos (`/api/users?role=driver`) excluye usuarios soft-deleted (dejan de poder ser chofer asignado); no hay UI de "reactivar" todavía (queda para FASE 4+ si el producto lo pide).
+
+## ADR-023 — Base UI 1.7 como base del design system del panel (no shadcn/ui/Radix)
+
+**Decisión:** las primitivas del panel (`components/ui/*`) están construidas sobre `@base-ui/react` 1.7 (pinned), con el mismo API de composición que shadcn/ui (trigger/portal/popup/title/close) pero respetando las convenciones de Base UI: `Dialog` (no `Modal`), `AlertDialog`, `Menu`, y el prop `render` para polimorfismo (no existe `asChild`/`Slot` como en Radix).
+**Contexto:** ADR-005 decía "shadcn/ui (FASE 4) soporta v4 sin problema", pero al implementar FASE 4 el generador shadcn actual asume Radix y expone un `asChild` (`@radix-ui/react-slot`) que no existe en Base UI — el template generado tenía componentes rotos al typecheckear. En vez de parchear cada primitiva con un Slot propio, se fijó la decisión en Base UI nativo (mantiene el patrón de autoría que ya conocíamos de shadcn).
+**Consecuencias:** no hay `asChild`; para enlazar un botón se usa `render={<Link .../>}`. Cualquier snippet de shadcn que se copie hay que traducirlo a Base UI (más simple de lo que parece: mismas partes, otros nombres). Si mañana se necesita una primitiva que Base UI no cubre, se agrega sobre la misma base en vez de mezclar bibliotecas.
+
+## ADR-024 — Alta de usuarios requiere `SUPABASE_SERVICE_ROLE_KEY` en el entorno
+
+**Decisión:** `POST /api/users` (y el `PATCH` de email) crean/actualizan el usuario en Supabase Auth con el service role (`apps/web/src/lib/supabase/admin.ts`). Esto requiere `SUPABASE_SERVICE_ROLE_KEY` en el runtime.
+**Contexto:** el `id` del perfil en `users` ES `auth.users.id`; no existe el usuario sin crearlo primero en Auth. La key de service role bypasea RLS a propósito (mismo principio que ADR-015).
+**Consecuencias:** local funciona (la key está en `.env`). **Pendiente en producción:** agregar `SUPABASE_SERVICE_ROLE_KEY` a las env vars de Vercel — hasta entonces `POST /api/users` fallará con un error claro de configuración. La key nunca se expone al browser (solo `NEXT_PUBLIC_*` llega al cliente).

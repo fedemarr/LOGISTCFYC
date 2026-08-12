@@ -191,3 +191,64 @@ para `ENTREGADO`, `reason` + `photoUrl` para `FALLA_REPORTADA`, etc. (ver
 JSON por evento a stdout (Vercel lo captura), respeta `LOG_LEVEL`, soporta
 `logger.child({...})` para bindings de contexto. Nada de `console.log` en
 código de producción (ver `apps/web/eslint.config.mjs`).
+
+## 9. Panel web (FASE 4)
+
+### Sesión del panel
+
+El panel usa **supabase-js en el browser** (localStorage) y adjunta el JWT
+como `Authorization: Bearer` a cada llamada (helper `apiFetch` en
+`apps/web/src/lib/api/client.ts`). El middleware de `/api/*` valida ese JWT
+igual que en mobile. La sesión es client-side a propósito (ver ADR en
+`docs/DECISIONES.md`).
+
+### `GET /api/auth/me`
+
+Identidad del usuario logueado (lo llama el app shell al entrar).
+
+- **Roles:** cualquier sesión válida.
+- **Respuesta:** `data` = `{ user: { id, email, fullName, phone, roles },
+orgName }`.
+
+### `GET|POST /api/users`, `GET|PATCH|DELETE /api/users/:id`
+
+CRUD de usuarios del panel. **Solo admin** (matriz §3).
+
+- `GET` listado: `?page&pageSize&search&role`. `data.items` incluye `roles`.
+- `POST` body: `{ email, password (≥8), fullName, phone?, roles[] }`. Crea
+  el usuario en Supabase Auth (service role) + la fila en `users` + sus
+  `user_roles`. **Requiere `SUPABASE_SERVICE_ROLE_KEY` en el entorno**
+  (configurada en local; falta agregarla en Vercel para dar de alta
+  usuarios en producción).
+- `PATCH` body: `{ email?, fullName?, phone?, isActive?, roles? }`.
+- `DELETE`: soft delete (`deleted_at` + `isActive=false`, regla global).
+- `POST` y `PATCH` con rate limit `users:write:{userId}`, 60/60s.
+
+### `GET|POST /api/vehicles`, `GET|PATCH|DELETE /api/vehicles/:id`
+
+Flota. **Lectura:** admin/dispatcher/warehouse. **Escritura:** solo admin.
+
+- `GET` listado: `?page&pageSize&search&status`. `data.items` incluye
+  `assignedDriverName` (join con `users`).
+- `POST` body: `{ plate, brand?, model?, year?, capacityPackages?, status,
+assignedDriverId? }` (la patente se normaliza a mayúsculas).
+- `PATCH` body: cualquiera de los campos de `POST` más
+  `capacityM3?, capacityKg?, currentOdometer?, insuranceExpiry?, vtvExpiry?`.
+- `DELETE`: soft delete.
+
+### `GET|POST /api/clients`, `GET|PATCH|DELETE /api/clients/:id`
+
+Clientes (empresas que reciben envíos). Misma matriz que vehículos.
+
+- Body `{ name, contact? }`. `DELETE` soft delete.
+
+### `GET|POST /api/containers`, `GET|PATCH|DELETE /api/containers/:id`
+
+Contenedores del depósito. Misma matriz que vehículos.
+
+- Body `{ code, type ("BAG"|"CART"|"CAGE"|"SHELF"), qrPayload? }`. `DELETE`
+  soft delete.
+
+> Los CRUD usan soft delete (regla global del proyecto) y validación Zod
+> por endpoint. Los `[id]` devuelven `NOT_FOUND` si el recurso no existe o
+> está soft-deleted.
