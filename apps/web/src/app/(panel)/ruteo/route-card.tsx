@@ -156,6 +156,40 @@ export function RouteCard({
         </div>
       )}
 
+      {/* Acciones ARRIBA de la lista de paradas, a propósito: con muchas
+          paradas el panel de rutas puede requerir scroll para llegar al
+          final, y "Aprobar"/"Imprimir etiquetas" son la acción principal
+          de la tarjeta — no deberían depender de scrollear hasta el
+          fondo para encontrarlas. */}
+      <div className="mb-2.5 flex gap-2">
+        {canAdjust && (
+          <Button onClick={() => void handleApprove()} disabled={busy} size="sm">
+            {busy ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="size-4" />
+            )}
+            Aprobar
+          </Button>
+        )}
+        {route.status === "APPROVED" && (
+          <Button
+            render={
+              <a
+                href={`/api/routes/${route.id}/labels?format=thermal`}
+                target="_blank"
+                rel="noreferrer"
+              />
+            }
+            variant="outline"
+            size="sm"
+          >
+            <Printer className="size-4" />
+            Imprimir etiquetas
+          </Button>
+        )}
+      </div>
+
       <ul className="mb-2.5 flex flex-col gap-1.5">
         {detail?.stops.map((stop) => (
           <li
@@ -189,35 +223,6 @@ export function RouteCard({
         ))}
         {!detail && <li className="text-text-muted text-sm">Cargando paradas…</li>}
       </ul>
-
-      <div className="flex gap-2">
-        {canAdjust && (
-          <Button onClick={() => void handleApprove()} disabled={busy} size="sm">
-            {busy ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <CheckCircle2 className="size-4" />
-            )}
-            Aprobar
-          </Button>
-        )}
-        {route.status === "APPROVED" && (
-          <Button
-            render={
-              <a
-                href={`/api/routes/${route.id}/labels?format=thermal`}
-                target="_blank"
-                rel="noreferrer"
-              />
-            }
-            variant="outline"
-            size="sm"
-          >
-            <Printer className="size-4" />
-            Imprimir etiquetas
-          </Button>
-        )}
-      </div>
     </div>
   );
 }
