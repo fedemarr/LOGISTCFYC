@@ -11,7 +11,10 @@ import type { ExpoConfig } from "expo/config";
  */
 const config: ExpoConfig = {
   name: "FYC",
-  slug: "fyc-mobile",
+  // Tiene que matchear el slug del proyecto ya creado en expo.dev
+  // (identificado por `extra.eas.projectId` acá abajo) — si no matchean,
+  // `eas build` falla antes de arrancar. Ver docs/DECISIONES.md FASE 7-8.
+  slug: "fyc-logistica",
   version: "0.1.0",
   orientation: "portrait",
   icon: "./assets/icon.png",
@@ -57,8 +60,7 @@ const config: ExpoConfig = {
   },
   extra: {
     eas: {
-      // Se completa con `eas init` cuando haya una cuenta Expo vinculada.
-      projectId: undefined,
+      projectId: "e01f2812-ca91-449c-b064-1e1d0f6eabe0",
     },
   },
 };
