@@ -1,0 +1,484 @@
+/**
+ * Ruteo — PROMPT-MAESTRO §8, etapas 1 y 2 aplicadas a datos reales +
+ * persistencia. La lógica pura (clustering, secuenciación) vive en
+ * `@fyc/geo`; acá solo se arma el input (paquetes geocodificados,
+ * vehículos disponibles), se pide la matriz de distancias reales
+ * (`routing.ts`) y se escribe el resultado (`routes` + `route_stops`).
+ *
+ * Etapa 3 (ajuste humano) es lo que expone `reassignPackageRoute()` y
+ * `approveRoute()` — el algoritmo PROPONE, el dispatcher DISPONE (§8).
+ */
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { clusterPackages, sequenceRoute, type LatLng } from "@fyc/geo";
+import type { Role } from "@fyc/shared";
+import { Errors } from "@/lib/api/errors";
+import { db } from "@/lib/db";
+import {
+  knownAddresses,
+  operations,
+  organizations,
+  packages,
+  routes,
+  routeStops,
+  vehicles,
+} from "@/lib/db/schema";
+import { getDistanceMatrix, matrixLookup } from "./routing";
+import { runPackageTransition } from "./state-machine";
+
+/** Capacidad asumida si el vehículo no tiene `capacity_packages` cargado (§8: referencia de "40 paradas"). */
+const DEFAULT_VEHICLE_CAPACITY = 40;
+
+/** Paleta de colores para diferenciar rutas en la etiqueta impresa (§9.2) — provisoria, se realinea con el design system en el rediseño visual del panel. */
+const ROUTE_COLORS = [
+  "#2563EB",
+  "#DC2626",
+  "#16A34A",
+  "#D97706",
+  "#7C3AED",
+  "#0891B2",
+  "#DB2777",
+  "#65A30D",
+  "#EA580C",
+  "#4338CA",
+  "#0D9488",
+  "#B91C1C",
+];
+
+/**
+ * Ubicación del depósito (§9.2, punto de partida de toda ruta). No está en
+ * el modelo de datos del documento madre como columna dedicada — se
+ * resuelve desde `organizations.settings.depot` si está cargado, si no
+ * desde `DEFAULT_DEPOT_LAT`/`DEFAULT_DEPOT_LNG` (`.env`). Si ninguno está
+ * configurado, falla explícito en vez de inventar una coordenada (ver
+ * docs/DECISIONES.md ADR-033) — es un dato de negocio real, no algo que se
+ * pueda adivinar.
+ */
+export async function resolveDepotLocation(orgId: string): Promise<LatLng> {
+  const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId));
+  if (!org) throw Errors.notFound("organización no encontrada");
+
+  const settings = org.settings as { depot?: { lat?: number; lng?: number } } | null;
+  if (
+    settings?.depot?.lat != null &&
+    settings.depot.lng != null &&
+    Number.isFinite(settings.depot.lat) &&
+    Number.isFinite(settings.depot.lng)
+  ) {
+    return { lat: settings.depot.lat, lng: settings.depot.lng };
+  }
+
+  const envLat = Number(process.env.DEFAULT_DEPOT_LAT);
+  const envLng = Number(process.env.DEFAULT_DEPOT_LNG);
+  if (
+    Number.isFinite(envLat) &&
+    Number.isFinite(envLng) &&
+    process.env.DEFAULT_DEPOT_LAT
+  ) {
+    return { lat: envLat, lng: envLng };
+  }
+
+  throw Errors.validation(
+    "falta configurar la ubicación del depósito (organizations.settings.depot o DEFAULT_DEPOT_LAT/DEFAULT_DEPOT_LNG en .env) antes de generar rutas",
+  );
+}
+
+interface GeocodedPackage {
+  id: string;
+  lat: number;
+  lng: number;
+}
+
+async function fetchGeocodedPackages(
+  orgId: string,
+  operationId: string,
+): Promise<GeocodedPackage[]> {
+  const rows = await db
+    .select({
+      id: packages.id,
+      lat: knownAddresses.lat,
+      lng: knownAddresses.lng,
+    })
+    .from(packages)
+    .innerJoin(knownAddresses, eq(knownAddresses.id, packages.addressId))
+    .where(
+      and(
+        eq(packages.orgId, orgId),
+        eq(packages.operationId, operationId),
+        eq(packages.status, "GEOCODIFICADO"),
+        isNull(packages.deletedAt),
+      ),
+    );
+
+  return rows.filter((r): r is GeocodedPackage => r.lat != null && r.lng != null);
+}
+
+interface AvailableVehicle {
+  vehicleId: string;
+  driverId: string;
+  capacity: number;
+}
+
+async function fetchAvailableVehicles(orgId: string): Promise<AvailableVehicle[]> {
+  const rows = await db
+    .select({
+      id: vehicles.id,
+      assignedDriverId: vehicles.assignedDriverId,
+      capacityPackages: vehicles.capacityPackages,
+    })
+    .from(vehicles)
+    .where(
+      and(
+        eq(vehicles.orgId, orgId),
+        eq(vehicles.status, "AVAILABLE"),
+        isNull(vehicles.deletedAt),
+      ),
+    );
+
+  return rows
+    .filter(
+      (r): r is typeof r & { assignedDriverId: string } => r.assignedDriverId != null,
+    )
+    .map((r) => ({
+      vehicleId: r.id,
+      driverId: r.assignedDriverId,
+      capacity: r.capacityPackages ?? DEFAULT_VEHICLE_CAPACITY,
+    }));
+}
+
+/** Duración total de un tour ya secuenciado, usando la matriz real (no la distancia de `sequenceRoute`, que es solo métrica de optimización). */
+function tourDurationS(
+  depot: LatLng,
+  orderedPoints: LatLng[],
+  lookup: (a: LatLng, b: LatLng) => { durationS: number },
+): number {
+  let total = 0;
+  let prev = depot;
+  for (const p of orderedPoints) {
+    total += lookup(prev, p).durationS;
+    prev = p;
+  }
+  return total;
+}
+
+export interface GenerateRouteProposalResult {
+  routes: Array<{
+    routeId: string;
+    routeNumber: number;
+    packageCount: number;
+    plannedDistanceM: number;
+    plannedDurationS: number;
+  }>;
+  outlierPackageIds: string[];
+  unassignedForLackOfCapacity: number;
+}
+
+/**
+ * Corre las etapas 1 y 2 de §8 sobre los paquetes GEOCODIFICADO de una
+ * operación y persiste el resultado como rutas `DRAFT` — la propuesta que
+ * el dispatcher ajusta a mano antes de aprobar (etapa 3).
+ */
+export async function generateRouteProposal(
+  orgId: string,
+  operationId: string,
+): Promise<GenerateRouteProposalResult> {
+  const [operation] = await db
+    .select()
+    .from(operations)
+    .where(and(eq(operations.id, operationId), eq(operations.orgId, orgId)));
+  if (!operation) throw Errors.notFound("operación no encontrada");
+
+  const depot = await resolveDepotLocation(orgId);
+  const geocoded = await fetchGeocodedPackages(orgId, operationId);
+  if (geocoded.length === 0) {
+    throw Errors.validation(
+      "no hay paquetes GEOCODIFICADO en esta operación — corré el geocoding de /deposito primero",
+    );
+  }
+
+  const vehicleList = await fetchAvailableVehicles(orgId);
+  if (vehicleList.length === 0) {
+    throw Errors.validation(
+      "no hay vehículos AVAILABLE con chofer asignado — asigná al menos uno antes de generar rutas",
+    );
+  }
+
+  const clusterResult = clusterPackages(
+    geocoded.map((p) => ({ id: p.id, lat: p.lat, lng: p.lng })),
+    { capacities: vehicleList.map((v) => v.capacity) },
+  );
+
+  const byId = new Map(geocoded.map((p) => [p.id, p]));
+  const result: GenerateRouteProposalResult = {
+    routes: [],
+    outlierPackageIds: clusterResult.outlierIds,
+    unassignedForLackOfCapacity: 0,
+  };
+
+  let routeNumber = 1;
+  for (let i = 0; i < clusterResult.clusters.length; i++) {
+    const cluster = clusterResult.clusters[i];
+    if (!cluster || cluster.pointIds.length === 0) continue;
+    const vehicle = vehicleList[i];
+    if (!vehicle) continue;
+
+    const clusterPoints = cluster.pointIds
+      .map((id) => byId.get(id))
+      .filter((p): p is GeocodedPackage => p != null);
+
+    const allPoints: LatLng[] = [depot, ...clusterPoints];
+    const matrix = await getDistanceMatrix(allPoints, allPoints);
+    const lookup = matrixLookup(allPoints, matrix);
+
+    const sequence = sequenceRoute(
+      depot,
+      clusterPoints.map((p) => ({ id: p.id, lat: p.lat, lng: p.lng })),
+      { distanceFn: (a, b) => lookup(a, b).distanceM },
+    );
+
+    const orderedPackages = sequence.orderedIds
+      .map((id) => byId.get(id))
+      .filter((p): p is GeocodedPackage => p != null);
+    const plannedDurationS = tourDurationS(depot, orderedPackages, lookup);
+
+    const [route] = await db
+      .insert(routes)
+      .values({
+        orgId,
+        operationId,
+        routeNumber,
+        status: "DRAFT",
+        assignedDriverId: vehicle.driverId,
+        vehicleId: vehicle.vehicleId,
+        plannedDistanceM: sequence.totalDistanceM,
+        plannedDurationS: Math.round(plannedDurationS),
+        plannedStops: orderedPackages.length,
+        colorHex: ROUTE_COLORS[(routeNumber - 1) % ROUTE_COLORS.length],
+      })
+      .returning();
+    if (!route) throw Errors.internal("no se pudo crear la ruta");
+
+    let prev: LatLng = depot;
+    let seq = 0;
+    for (const pkg of orderedPackages) {
+      const leg = lookup(prev, pkg);
+      await db.insert(routeStops).values({
+        routeId: route.id,
+        packageId: pkg.id,
+        sequence: seq,
+        distanceFromPrevM: leg.distanceM,
+        durationFromPrevS: Math.round(leg.durationS),
+        status: "PENDING",
+      });
+      await db
+        .update(packages)
+        .set({ routeId: route.id, updatedAt: new Date() })
+        .where(eq(packages.id, pkg.id));
+      prev = pkg;
+      seq++;
+    }
+
+    result.routes.push({
+      routeId: route.id,
+      routeNumber,
+      packageCount: orderedPackages.length,
+      plannedDistanceM: sequence.totalDistanceM,
+      plannedDurationS: Math.round(plannedDurationS),
+    });
+    routeNumber++;
+  }
+
+  const assignedCount = result.routes.reduce((sum, r) => sum + r.packageCount, 0);
+  result.unassignedForLackOfCapacity =
+    geocoded.length - assignedCount - result.outlierPackageIds.length;
+
+  return result;
+}
+
+/** Vuelve a secuenciar una ruta ya creada (después de mover paquetes) — recalcula distancia/tiempo "en vivo" (§8, etapa 3). */
+async function resequenceRoute(orgId: string, routeId: string): Promise<void> {
+  const [route] = await db.select().from(routes).where(eq(routes.id, routeId));
+  if (!route) throw Errors.notFound("ruta no encontrada");
+
+  const depot = await resolveDepotLocation(orgId);
+  const members = await db
+    .select({ id: packages.id, lat: knownAddresses.lat, lng: knownAddresses.lng })
+    .from(packages)
+    .innerJoin(knownAddresses, eq(knownAddresses.id, packages.addressId))
+    .where(eq(packages.routeId, routeId));
+  const points = members.filter(
+    (p): p is GeocodedPackage => p.lat != null && p.lng != null,
+  );
+
+  await db.delete(routeStops).where(eq(routeStops.routeId, routeId));
+
+  if (points.length === 0) {
+    await db
+      .update(routes)
+      .set({
+        plannedDistanceM: 0,
+        plannedDurationS: 0,
+        plannedStops: 0,
+        updatedAt: new Date(),
+      })
+      .where(eq(routes.id, routeId));
+    return;
+  }
+
+  const allPoints: LatLng[] = [depot, ...points];
+  const matrix = await getDistanceMatrix(allPoints, allPoints);
+  const lookup = matrixLookup(allPoints, matrix);
+  const sequence = sequenceRoute(depot, points, {
+    distanceFn: (a, b) => lookup(a, b).distanceM,
+  });
+
+  const byId = new Map(points.map((p) => [p.id, p]));
+  const orderedPackages = sequence.orderedIds
+    .map((id) => byId.get(id))
+    .filter((p): p is GeocodedPackage => p != null);
+  const plannedDurationS = tourDurationS(depot, orderedPackages, lookup);
+
+  let prev: LatLng = depot;
+  let seq = 0;
+  for (const pkg of orderedPackages) {
+    const leg = lookup(prev, pkg);
+    await db.insert(routeStops).values({
+      routeId,
+      packageId: pkg.id,
+      sequence: seq,
+      distanceFromPrevM: leg.distanceM,
+      durationFromPrevS: Math.round(leg.durationS),
+      status: "PENDING",
+    });
+    prev = pkg;
+    seq++;
+  }
+
+  await db
+    .update(routes)
+    .set({
+      plannedDistanceM: sequence.totalDistanceM,
+      plannedDurationS: Math.round(plannedDurationS),
+      plannedStops: orderedPackages.length,
+      updatedAt: new Date(),
+    })
+    .where(eq(routes.id, routeId));
+}
+
+/**
+ * Ajuste manual (§8, etapa 3): mover un paquete de una ruta a otra.
+ * Ambas rutas deben seguir `DRAFT`/`PROPOSED` — una vez `APPROVED` el
+ * bulto está impreso y moverlo rompería la identidad física (§7).
+ */
+export async function reassignPackageRoute(
+  orgId: string,
+  packageId: string,
+  toRouteId: string,
+): Promise<void> {
+  const [pkg] = await db
+    .select()
+    .from(packages)
+    .where(and(eq(packages.id, packageId), eq(packages.orgId, orgId)));
+  if (!pkg) throw Errors.notFound("paquete no encontrado");
+  if (!pkg.routeId)
+    throw Errors.validation("el paquete no está asignado a ninguna ruta todavía");
+
+  const [fromRoute, toRoute] = await Promise.all([
+    db
+      .select()
+      .from(routes)
+      .where(eq(routes.id, pkg.routeId))
+      .then((r) => r[0]),
+    db
+      .select()
+      .from(routes)
+      .where(and(eq(routes.id, toRouteId), eq(routes.orgId, orgId)))
+      .then((r) => r[0]),
+  ]);
+  if (!toRoute) throw Errors.notFound("ruta de destino no encontrada");
+  if (!fromRoute) throw Errors.notFound("ruta de origen no encontrada");
+  if (fromRoute.id === toRoute.id) return;
+  for (const r of [fromRoute, toRoute]) {
+    if (r.status !== "DRAFT" && r.status !== "PROPOSED") {
+      throw Errors.conflict(
+        `la ruta ${r.routeNumber} ya está ${r.status} — no se puede reasignar bultos después de aprobar`,
+      );
+    }
+  }
+
+  await db
+    .update(packages)
+    .set({ routeId: toRoute.id, updatedAt: new Date() })
+    .where(eq(packages.id, packageId));
+
+  await resequenceRoute(orgId, fromRoute.id);
+  await resequenceRoute(orgId, toRoute.id);
+}
+
+export interface ApproveRouteResult {
+  routeId: string;
+  status: "APPROVED";
+  packageCount: number;
+}
+
+/**
+ * APROBAR (§8, etapa 3 / §9.2): congela `bulk_number` (1..n según la
+ * secuencia final) y transiciona cada paquete GEOCODIFICADO → ASIGNADO.
+ * A partir de acá el número de bulto de la etiqueta ya impresa NUNCA
+ * cambia, aunque `route_stops.sequence` se siga recalculando (§7).
+ */
+export async function approveRoute(
+  orgId: string,
+  routeId: string,
+  actor: { userId: string; roles: readonly Role[] },
+): Promise<ApproveRouteResult> {
+  const [route] = await db
+    .select()
+    .from(routes)
+    .where(and(eq(routes.id, routeId), eq(routes.orgId, orgId)));
+  if (!route) throw Errors.notFound("ruta no encontrada");
+  if (route.status !== "DRAFT" && route.status !== "PROPOSED") {
+    throw Errors.conflict(`la ruta ya está ${route.status}`);
+  }
+
+  const stops = await db
+    .select({ packageId: routeStops.packageId, sequence: routeStops.sequence })
+    .from(routeStops)
+    .where(eq(routeStops.routeId, routeId))
+    .orderBy(asc(routeStops.sequence));
+  if (stops.length === 0)
+    throw Errors.validation("la ruta no tiene paradas — no hay nada que aprobar");
+
+  await db.transaction(async (tx) => {
+    for (const [idx, stop] of stops.entries()) {
+      await tx
+        .update(packages)
+        .set({ bulkNumber: idx + 1, updatedAt: new Date() })
+        .where(eq(packages.id, stop.packageId));
+    }
+    await tx
+      .update(routes)
+      .set({ status: "APPROVED", updatedAt: new Date() })
+      .where(eq(routes.id, routeId));
+  });
+
+  // Fuera de la transacción anterior — mismo patrón que `scanPackage()`
+  // (ver docs/DECISIONES.md): `runPackageTransition` abre su propia
+  // transacción, anidarla causaría deadlock de locks entre conexiones.
+  const packageIds = stops.map((s) => s.packageId);
+  const currentStatuses = await db
+    .select({ id: packages.id, status: packages.status })
+    .from(packages)
+    .where(inArray(packages.id, packageIds));
+  for (const p of currentStatuses) {
+    if (p.status !== "GEOCODIFICADO") continue; // ya transicionado o en excepción — no reintentar a ciegas
+    await runPackageTransition({
+      packageId: p.id,
+      toStatus: "ASIGNADO",
+      actorId: actor.userId,
+      actorRoles: actor.roles,
+      metadata: { routeId },
+    });
+  }
+
+  return { routeId, status: "APPROVED", packageCount: stops.length };
+}

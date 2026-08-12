@@ -339,3 +339,78 @@ operación `CLOSED` y devuelve el reporte de reconciliación:
 > distinto del "cierre del día" de §9.9 (reconciliación de entregas —
 > CARGADOS = ENTREGADOS + FALLIDOS + DEVUELTOS + EN_DEPÓSITO), que es
 > FASE 12 y necesita datos de `deliveries`/`incidents` que todavía no existen.
+
+## 11. Ruteo (FASE 6)
+
+Estrategia híbrida de §8: clustering geográfico capacitado + DBSCAN de
+outliers (`@fyc/geo`, gratis, local) → secuenciación con matriz de
+distancias reales (`lib/services/routing.ts`, cacheada, Google Routes API)
+→ ajuste humano (`lib/services/route-planning.ts`) → aprobar (congela
+`bulk_number`) → etiquetas (`lib/services/labels.ts`). El algoritmo
+PROPONE, el dispatcher DISPONE — nada se aprueba solo.
+
+### `GET|POST /api/operations/:id/routes`
+
+**admin/dispatcher/warehouse** (GET también permite `driver`, solo ve lo
+asignado a su propia ruta vía `GET /api/routes/:id`).
+
+- `GET`: lista las rutas de la operación con conteo de paradas
+  (`{ items: [...ruta, stopCount] }`).
+- `POST`: corre el pipeline completo (§8 etapas 1-2) sobre los paquetes
+  `GEOCODIFICADO` de la operación y crea rutas `DRAFT` + `route_stops`.
+  Necesita al menos un vehículo `AVAILABLE` con chofer asignado — si no
+  hay, `VALIDATION_ERROR`. Si ya existen rutas para la operación,
+  `CONFLICT` (ajustá o borrá las `DRAFT` existentes antes de generar de
+  nuevo — evita duplicar paquetes en dos propuestas a la vez). Devuelve
+  `{ routes: [{ routeId, routeNumber, packageCount, plannedDistanceM,
+plannedDurationS }], outlierPackageIds, unassignedForLackOfCapacity }`.
+
+### `GET /api/routes/:id`
+
+Detalle de una ruta con sus paradas en orden (`route_stops.sequence`, no
+`bulk_number` — ver la distinción crítica en §7). Un `driver` con un solo
+rol solo puede ver la ruta que tiene asignada (`FORBIDDEN` si no es la
+suya). Devuelve `{ ...ruta, driverName, stops: [{ stopId, sequence,
+status, distanceFromPrevM, durationFromPrevS, packageId, internalCode,
+trackingCode, bulkNumber, recipientName, rawAddressText, lat, lng }] }`.
+
+### `POST /api/routes/:id/reassign`
+
+Ajuste manual (§8 etapa 3: "arrastrar un paquete de una ruta a otra").
+**admin/dispatcher/warehouse.** `:id` es la ruta DESTINO. Body:
+`{ packageId }`. Ambas rutas (origen y destino) tienen que estar
+`DRAFT`/`PROPOSED` — `CONFLICT` si alguna ya está `APPROVED` (el bulto ya
+tiene número congelado, moverlo rompería la identidad física del §7).
+Re-secuencia ambas rutas completas con la matriz real tras el movimiento
+("recalcula en vivo", ver ADR-036).
+
+### `POST /api/routes/:id/approve`
+
+**admin/dispatcher** (más restrictivo que la transición de estado en sí,
+ver ADR-038). Congela `bulk_number` (1..n según la secuencia final de
+`route_stops`) y transiciona cada paquete `GEOCODIFICADO → ASIGNADO`. A
+partir de acá el número de bulto de la etiqueta impresa nunca cambia
+(§7). `CONFLICT` si la ruta ya no está `DRAFT`/`PROPOSED`. Devuelve
+`{ routeId, status: "APPROVED", packageCount }`.
+
+### `GET /api/routes/:id/labels?format=thermal|a4`
+
+PDF listo para imprimir (§9.2) — responde el binario directo
+(`Content-Type: application/pdf`), no el envelope JSON estándar. Solo
+funciona sobre una ruta `APPROVED` (`VALIDATION_ERROR` si no —
+`bulk_number` todavía no está congelado). El QR es siempre
+`packages.internal_code`, nunca `tracking_code` (§9.2). `format=thermal`
+(default): una etiqueta de 100×150mm por página. `format=a4`: grilla 2×2
+por hoja A4.
+
+### Nota sobre el depósito
+
+Todo el pipeline necesita saber dónde arranca la ruta. Se resuelve con
+`organizations.settings.depot = {lat, lng}` o, si no está cargado, las env
+vars `DEFAULT_DEPOT_LAT`/`DEFAULT_DEPOT_LNG` — si ninguna está
+configurada, `POST /api/operations/:id/routes` falla con
+`VALIDATION_ERROR` en vez de rutear desde una coordenada inventada (ver
+ADR-033). Sin `GOOGLE_ROUTES_API_KEY` (todavía no está, ver `.env`), la
+matriz de distancias degrada a una estimación (`estimated: true` en la
+respuesta interna) en vez de fallar — mismo criterio que geocoding
+(ADR-030, ADR-035).

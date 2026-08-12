@@ -49,11 +49,10 @@ autorización:
 
 **Último commit en `main`:** revisá `git log --oneline -10` al arrancar — este documento
 puede quedar desactualizado si una sesión anterior avanzó más y no llegó a actualizarlo.
-Al día de escribir esto: FASE 1 a 5 **cerradas** (commit `a548e51`). FASE 6 (Ruteo) es la
-próxima a arrancar. Además, hay un pedido explícito de Fede pendiente de aplicar **después**
-de FASE 6: rediseñar visualmente el panel real (no un mock aparte) siguiendo
-`PROMPT-FRONTEND-V2.md` + `mockup.html` (ambos en la raíz del repo, ya trackeados en git
-desde el commit de FASE 5) — ver §6.
+Al día de escribir esto: FASE 1 a 6 **cerradas**. Lo único que queda pendiente de lo que
+Fede pidió explícitamente es el rediseño visual del panel real (no un mock aparte) siguiendo
+`PROMPT-FRONTEND-V2.md` + `mockup.html` (ambos en la raíz del repo, trackeados en git desde
+el commit de FASE 5) — es el próximo paso, ver §6.
 
 **Repo:** `https://github.com/fedemarr/LOGISTCFYC` (rama `main`). El working tree debería
 estar limpio; si no lo está, mirá qué quedó a medio hacer antes de seguir.
@@ -293,6 +292,68 @@ Cascada completa de PROMPT-MAESTRO §2 implementada y testeada de punta a punta:
    CSV crudo — el mapeo de columnas (si hace falta UI para elegir qué columna es qué) es
    responsabilidad del cliente/frontend, no del endpoint (ver ADR-031).
 
+### FASE 6 — Ruteo ✅
+
+Estrategia híbrida de §8 completa, de punta a punta (clustering → matriz real → secuencia →
+ajuste manual → aprobar → etiquetas):
+
+- **`packages/geo`** (antes solo tenía haversine): `clusterPackages()` — capacitated
+  k-means++ con `capacities: number[]` (una por vehículo, heterogéneas) + detección de
+  outliers estilo DBSCAN (`minPts=1`, aislado = sin otro punto a ≤5km) + una pasada de
+  refinamiento de frontera. `sequenceRoute()` — nearest neighbor desde el depósito + 2-opt
+  acotado por presupuesto de tiempo (default 5s, §8). Ambas funciones puras, sin tocar la
+  base, con `randomFn`/`distanceFn` inyectables para tests determinísticos.
+- **Matriz de distancias reales** (`apps/web/src/lib/services/routing.ts`): cascada de
+  caché igual que geocoding — tabla nueva `route_matrix_cache` (migración `0007`, sin
+  `org_id`, mismo criterio que `geocode_cache`) → Google Routes API (`computeRouteMatrix`,
+  necesita `GOOGLE_ROUTES_API_KEY`, todavía no conseguida) → estimación degradada
+  (haversine × 1.3, nunca excepción).
+- **Generación de propuesta** (`lib/services/route-planning.ts`): `generateRouteProposal()`
+  arma clusters con los `GEOCODIFICADO` de la operación + vehículos `AVAILABLE` con chofer
+  asignado, pide la matriz por cluster, secuencia, y escribe `routes` (`DRAFT`) +
+  `route_stops`. `resolveDepotLocation()` — `organizations.settings.depot` con fallback a
+  `DEFAULT_DEPOT_LAT`/`DEFAULT_DEPOT_LNG`, sin inventar coordenadas si falta (ver ADR-033,
+  todavía sin cargar el valor real).
+- **Ajuste humano** (§8 etapa 3): `reassignPackageRoute()` mueve un paquete entre rutas
+  `DRAFT`/`PROPOSED` y re-secuencia ambas completas con la matriz real ("recalcula en
+  vivo"). `approveRoute()` congela `bulk_number` (1..n) y transiciona cada paquete
+  `GEOCODIFICADO → ASIGNADO` — **admin/dispatcher únicamente**, no warehouse (más
+  restrictivo que la transición de estado en sí, ver ADR-038).
+- **Etiquetas** (`lib/services/labels.ts`, formato exacto de §9.2): PDF con `pdf-lib` +
+  QR con `qrcode` (siempre `internal_code`, nunca `tracking_code`). Térmica 100×150mm
+  (una página por bulto) y A4 (grilla 2×2). Solo imprime rutas `APPROVED`.
+- **8 endpoints REST** bajo `/api/operations/:id/routes` (list/generate),
+  `/api/routes/:id` (detalle, con restricción para que un driver solo vea la suya),
+  `/api/routes/:id/reassign`, `/api/routes/:id/approve`, `/api/routes/:id/labels` (devuelve
+  el PDF binario directo, no el envelope JSON).
+- **UI funcional** en `/ruteo` (nav "Ruteo"): genera la propuesta, muestra cada ruta en una
+  card con sus paradas, permite mover un bulto a otra ruta con un select (no drag&drop
+  todavía), aprobar, e imprimir. **Sin el pulido visual ni el mapa MapLibre del mockup** —
+  es la base funcional sobre la que se aplica el rediseño de §6.
+- 22 tests de integración nuevos contra Supabase real (`route-planning.test.ts`,
+  `routing.test.ts`, `labels.test.ts`) + 12 tests puros de `@fyc/geo`.
+
+**Gotchas nuevos de FASE 6 — no los vuelvas a pisar:**
+
+1. **No hay coordenada de depósito real cargada todavía.** `resolveDepotLocation()` tira
+   `VALIDATION_ERROR` si no está `organizations.settings.depot` ni
+   `DEFAULT_DEPOT_LAT`/`DEFAULT_DEPOT_LNG` en `.env` (ambas declaradas pero vacías). Los
+   tests la setean vía `process.env` en el `beforeAll`. Antes de usar `/ruteo` con datos
+   reales, pedile a Fede la ubicación exacta del depósito y cargala.
+2. **`vehicles.assigned_driver_id` es obligatorio para que un vehículo cuente como
+   disponible para rutear** (`fetchAvailableVehicles()` filtra los que no lo tienen) —
+   además de `status: AVAILABLE`. Un vehículo sin chofer asignado no genera un cluster
+   aunque esté disponible.
+3. **`GOOGLE_ROUTES_API_KEY` no está configurada** (igual que `GOOGLE_GEOCODING_API_KEY` en
+   FASE 5) — todo el ruteo funciona con la estimación degradada (haversine × 1.3) hasta que
+   se cargue. No es un bug si las distancias no coinciden con Google Maps todavía.
+4. **Mismo patrón "no anidar `db.transaction()`"** que FASE 5 (ADR-027) aplica en
+   `approveRoute()`: el freeze de `bulk_number` + cambio de estado de la ruta van en una
+   transacción; `runPackageTransition()` (que abre la suya) se llama después, afuera.
+5. **`reassignPackageRoute()` borra y recrea TODOS los `route_stops` de las dos rutas
+   afectadas** en cada movimiento (no un ajuste incremental, ver ADR-036) — barato al
+   volumen de §17 (~40 paradas/ruta) pero no pensado para un loop de mover-muchos-rápido.
+
 ## 4. Credenciales — dónde están, qué falta
 
 Todo lo que ya se consiguió está en `.env` (raíz, **no está en git**, no lo va a encontrar
@@ -337,35 +398,11 @@ $env:NODE_ENV="production"; pnpm exec dotenv -e ../../.env -- next build
 Si algo de esto falla, arreglalo antes de seguir avanzando de fase — no construyas FASE 3
 sobre una FASE 2 rota.
 
-## 6. Qué sigue: FASE 6 — Ruteo, y después el rediseño visual del panel
+## 6. Qué sigue: el rediseño visual del panel real
 
-**Orden decidido por Fede** ("hace las 2 fases siguientes y dsp involucralo, como vos veas"):
-primero FASE 6 completa (backend de ruteo), y **recién después** el rediseño visual. No
-alteres ese orden sin que te lo pidan.
-
-### FASE 6 — Ruteo (`PROMPT-MAESTRO-CLAUDE-CODE.md` §8 y §14)
-
-Todavía no arrancada. Alcance esperado:
-
-- `packages/geo`: clustering capacitado (k-means con restricción de capacidad por vehículo) +
-  DBSCAN para detectar outliers/direcciones sueltas que no conviene meter en un cluster.
-  Ya existe haversine en este package (FASE 1) — no la reimplementes.
-- Secuenciación dentro de cada cluster: nearest-neighbor + mejora 2-opt.
-- Integración con Google Routes API (vas a necesitar `GOOGLE_ROUTES_API_KEY`, todavía no
-  conseguida — pedísela a Fede cuando llegues a este punto, ver §4), con el mismo criterio de
-  caché agresivo que geocoding (no volver a pedir la misma matriz de distancias).
-- Endpoint(s) de generación de propuesta de rutas + revisión/ajuste manual + aprobación
-  (aprobar congela `bulk_number`, ver §7/§9 del documento madre).
-- Generación de etiquetas/labels imprimibles (PDF, pensar en térmica y A4 — confirmar con
-  Fede el tipo de impresora si no está en `.env`/decisiones previas antes de asumir un
-  tamaño).
-- UI mínima funcional para la pantalla de planner (sin el pulido visual todavía — eso es el
-  paso siguiente).
-- Mismo rigor que FASE 5: tests de integración reales contra Supabase, ADRs para cualquier
-  desvío del documento madre, suite completa verde antes de commitear, actualizar este
-  archivo al cerrar.
-
-### Después de FASE 6: rediseño visual del panel real
+FASE 1 a 6 están cerradas (backend + UI funcional). Lo único que falta de lo que Fede pidió
+explícitamente es esto — **no hay más fases de backend pendientes en la cola actual**, salvo
+que Fede pida seguir con FASE 7+ del documento madre (app mobile).
 
 Pedido explícito de Fede: **"quiero que se vea de esa manera"**, señalando
 `PROMPT-FRONTEND-V2.md` + `mockup.html` (ambos en la raíz del repo). Ante la pregunta

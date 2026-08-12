@@ -8,6 +8,7 @@ import {
   Boxes,
   Building2,
   LayoutDashboard,
+  Map,
   Package,
   Truck,
   Users,
@@ -43,6 +44,12 @@ const NAV_ITEMS: {
     href: "/deposito",
     label: "Depósito",
     icon: Warehouse,
+    roles: ["admin", "dispatcher", "warehouse"],
+  },
+  {
+    href: "/ruteo",
+    label: "Ruteo",
+    icon: Map,
     roles: ["admin", "dispatcher", "warehouse"],
   },
   {

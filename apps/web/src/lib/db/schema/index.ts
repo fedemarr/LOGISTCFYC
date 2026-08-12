@@ -17,3 +17,4 @@ export * from "./gps";
 export * from "./events";
 export * from "./rate_limits";
 export * from "./sync";
+export * from "./route-matrix-cache";

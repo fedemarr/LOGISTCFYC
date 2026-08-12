@@ -216,3 +216,69 @@ export interface CloseOperationResponse {
     surplus: ReconciliationItem[];
   };
 }
+
+// ── Ruteo (FASE 6) ──────────────────────────────────────────────────────
+
+export type RouteStatus =
+  | "DRAFT"
+  | "PROPOSED"
+  | "APPROVED"
+  | "ASSIGNED"
+  | "LOADING"
+  | "LOADED"
+  | "IN_TRANSIT"
+  | "COMPLETED"
+  | "CANCELLED";
+
+export interface RouteItem {
+  id: string;
+  operationId: string;
+  routeNumber: number;
+  status: RouteStatus;
+  assignedDriverId: string | null;
+  vehicleId: string | null;
+  plannedDistanceM: number | null;
+  plannedDurationS: number | null;
+  plannedStops: number | null;
+  colorHex: string | null;
+  stopCount: number;
+}
+
+export interface GenerateRouteProposalResponse {
+  routes: Array<{
+    routeId: string;
+    routeNumber: number;
+    packageCount: number;
+    plannedDistanceM: number;
+    plannedDurationS: number;
+  }>;
+  outlierPackageIds: string[];
+  unassignedForLackOfCapacity: number;
+}
+
+export interface RouteStopItem {
+  stopId: string;
+  sequence: number;
+  status: string;
+  distanceFromPrevM: number | null;
+  durationFromPrevS: number | null;
+  packageId: string;
+  internalCode: string;
+  trackingCode: string | null;
+  bulkNumber: number | null;
+  recipientName: string | null;
+  rawAddressText: string | null;
+  lat: number | null;
+  lng: number | null;
+}
+
+export interface RouteDetail extends RouteItem {
+  driverName: string | null;
+  stops: RouteStopItem[];
+}
+
+export interface ApproveRouteResponse {
+  routeId: string;
+  status: "APPROVED";
+  packageCount: number;
+}
