@@ -399,27 +399,21 @@ function PendingCard({
   const [busyAll, setBusyAll] = React.useState(false);
 
   // Si el manifiesto ya trajo la dirección (import con columna de
-  // dirección), precargamos el input con eso — el humano solo tiene que
-  // confirmar que el paquete llegó físicamente, no retipear nada.
-  React.useEffect(() => {
-    if (!items) return;
-    setDrafts((prev) => {
-      const next = { ...prev };
-      for (const pkg of items) {
-        if (next[pkg.id] === undefined && pkg.rawAddressText) {
-          next[pkg.id] = pkg.rawAddressText;
-        }
-      }
-      return next;
-    });
-  }, [items]);
+  // dirección), el input arranca precargado con eso — el humano solo
+  // tiene que confirmar que el paquete llegó físicamente, no retipear
+  // nada. Se deriva en el render, no con un efecto: en cuanto el usuario
+  // edita el campo, `drafts[pkg.id]` manda y esto deja de aplicar.
+  function draftFor(pkg: PendingPackageItem): string {
+    return drafts[pkg.id] ?? pkg.rawAddressText ?? "";
+  }
 
   async function resolveOne(id: string, rawAddressText: string) {
     await api.post(`/api/packages/${id}/resolve`, { rawAddressText });
   }
 
-  async function handleResolve(id: string) {
-    const rawAddressText = drafts[id]?.trim();
+  async function handleResolve(pkg: PendingPackageItem) {
+    const id = pkg.id;
+    const rawAddressText = draftFor(pkg).trim();
     if (!rawAddressText || rawAddressText.length < 3) {
       toast({ title: "Escribí una dirección válida", variant: "error" });
       return;
@@ -442,16 +436,14 @@ function PendingCard({
   // Resuelve de una todos los que ya tienen dirección cargada (del
   // manifiesto o ya tipeada a mano) — pensado para el caso "importé un
   // CSV con todo adentro, no quiero tocar uno por uno".
-  const readyToResolve = (items ?? []).filter(
-    (pkg) => (drafts[pkg.id]?.trim().length ?? 0) >= 3,
-  );
+  const readyToResolve = (items ?? []).filter((pkg) => draftFor(pkg).trim().length >= 3);
 
   async function handleResolveAll() {
     setBusyAll(true);
     let ok = 0;
     let failed = 0;
     for (const pkg of readyToResolve) {
-      const rawAddressText = drafts[pkg.id]!.trim();
+      const rawAddressText = draftFor(pkg).trim();
       try {
         await resolveOne(pkg.id, rawAddressText);
         ok++;
@@ -511,12 +503,12 @@ function PendingCard({
                 <Input
                   placeholder="Dirección completa"
                   className="sm:w-72"
-                  value={drafts[pkg.id] ?? ""}
+                  value={draftFor(pkg)}
                   onChange={(e) => setDrafts((d) => ({ ...d, [pkg.id]: e.target.value }))}
                 />
                 <Button
                   size="sm"
-                  onClick={() => void handleResolve(pkg.id)}
+                  onClick={() => void handleResolve(pkg)}
                   disabled={busyId === pkg.id || busyAll}
                 >
                   Resolver
