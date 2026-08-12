@@ -103,7 +103,7 @@ export default function DashboardPage() {
                   <CardDescription>{card.label}</CardDescription>
                   <ArrowUpRight className="text-text-muted size-4 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
                 </div>
-                <CardTitle className="text-3xl tabular-nums">
+                <CardTitle className="font-data text-3xl">
                   {loading ? (
                     <Skeleton className="h-8 w-14" />
                   ) : (

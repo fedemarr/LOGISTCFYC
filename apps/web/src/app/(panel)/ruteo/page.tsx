@@ -2,26 +2,42 @@
 
 import * as React from "react";
 import { Loader2, Route as RouteIcon } from "lucide-react";
-import { api, type OperationItem, type Page, type RouteItem } from "@/lib/api/client";
+import {
+  api,
+  type OperationItem,
+  type Page,
+  type RouteDetail,
+  type RouteItem,
+} from "@/lib/api/client";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ErrorState, TableSkeleton } from "@/components/states";
 import { useToast } from "@/components/ui/toast";
 import { RouteCard } from "./route-card";
+import { RouteMap } from "./route-map";
+
+interface RoutesResponse {
+  items: RouteItem[];
+  depot: { lat: number; lng: number } | null;
+}
 
 /**
- * `/ruteo` — planificador (§8, etapa 3 aplicada). FASE 6: funcional, sin el
- * mapa MapLibre ni el drag & drop del mockup todavía — eso llega con el
- * rediseño visual de PROMPT-FRONTEND-V2 sobre esta misma pantalla. Acá ya
- * están las tres operaciones que importan: generar la propuesta, mover un
- * bulto entre rutas, aprobar (congela `bulk_number`) e imprimir etiquetas.
+ * `/ruteo` — planificador (§8 completo: clustering + secuencia real +
+ * mapa + ajuste manual + aprobar + imprimir). Layout de dos columnas
+ * (tarjetas de ruta | mapa) como en el mockup, con las tres operaciones
+ * que importan: generar la propuesta, mover un bulto entre rutas
+ * (recalcula en vivo, ver ADR-036), aprobar (congela `bulk_number`) e
+ * imprimir etiquetas.
  */
 export default function RuteoPage() {
   const { toast } = useToast();
   const [status, setStatus] = React.useState<"loading" | "ready" | "error">("loading");
   const [operation, setOperation] = React.useState<OperationItem | null>(null);
   const [routeList, setRouteList] = React.useState<RouteItem[] | null>(null);
+  const [depot, setDepot] = React.useState<{ lat: number; lng: number } | null>(null);
+  const [details, setDetails] = React.useState<Record<string, RouteDetail>>({});
+  const [hoveredRouteId, setHoveredRouteId] = React.useState<string | null>(null);
   const [generating, setGenerating] = React.useState(false);
 
   const loadOperation = React.useCallback(async () => {
@@ -49,10 +65,21 @@ export default function RuteoPage() {
 
   const loadRoutes = React.useCallback(async (operationId: string) => {
     try {
-      const result = await api.get<{ items: RouteItem[] }>(
+      const result = await api.get<RoutesResponse>(
         `/api/operations/${operationId}/routes`,
       );
       setRouteList(result.items);
+      setDepot(result.depot);
+      const pairs = await Promise.all(
+        result.items.map(async (r) => {
+          try {
+            return [r.id, await api.get<RouteDetail>(`/api/routes/${r.id}`)] as const;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      setDetails(Object.fromEntries(pairs.filter((p) => p !== null)));
     } catch {
       // no bloquea el resto de la pantalla
     }
@@ -121,49 +148,66 @@ export default function RuteoPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <PageHeader
-        title="Ruteo"
-        description={`Operación ${operation.operationDate} · propone el algoritmo, dispone el dispatcher (§8)`}
-      />
+    <div className="-m-4 flex h-[calc(100vh-2rem)] flex-col gap-0 sm:-m-6 sm:h-[calc(100vh-3rem)]">
+      <div className="px-4 pt-4 sm:px-6 sm:pt-6">
+        <PageHeader
+          title="Ruteo"
+          description={`Operación ${operation.operationDate} · propone el algoritmo, dispone el dispatcher (§8)`}
+        />
+      </div>
 
       {(!routeList || routeList.length === 0) && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Generar propuesta de rutas</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <p className="text-text-muted text-sm">
-              Cluster geográfico capacitado + secuenciación por calle real sobre los
-              paquetes GEOCODIFICADO de esta operación (§8). Necesita al menos un vehículo
-              AVAILABLE con chofer asignado.
-            </p>
-            <Button
-              onClick={() => void handleGenerate()}
-              disabled={generating}
-              className="w-fit"
-            >
-              {generating ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <RouteIcon className="size-4" />
-              )}
-              Generar propuesta
-            </Button>
-          </CardContent>
-        </Card>
+        <div className="px-4 pt-4 sm:px-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Generar propuesta de rutas</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <p className="text-text-muted text-sm">
+                Cluster geográfico capacitado + secuenciación por calle real sobre los
+                paquetes GEOCODIFICADO de esta operación (§8). Necesita al menos un
+                vehículo AVAILABLE con chofer asignado.
+              </p>
+              <Button
+                onClick={() => void handleGenerate()}
+                disabled={generating}
+                className="w-fit"
+              >
+                {generating ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <RouteIcon className="size-4" />
+                )}
+                Generar propuesta
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {routeList && routeList.length > 0 && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          {routeList.map((route) => (
-            <RouteCard
-              key={route.id}
-              route={route}
-              allRoutes={routeList}
-              onChanged={() => void loadRoutes(operation.id)}
+        <div className="mt-4 grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[320px_1fr]">
+          <div className="border-border bg-surface flex flex-col gap-2 overflow-y-auto border-r p-3">
+            {routeList.map((route) => (
+              <RouteCard
+                key={route.id}
+                route={route}
+                allRoutes={routeList}
+                detail={details[route.id]}
+                hovered={hoveredRouteId === route.id}
+                onHoverChange={setHoveredRouteId}
+                onChanged={() => void loadRoutes(operation.id)}
+              />
+            ))}
+          </div>
+          <div className="hidden min-h-[420px] lg:block">
+            <RouteMap
+              routes={routeList}
+              details={details}
+              depot={depot}
+              hoveredRouteId={hoveredRouteId}
             />
-          ))}
+          </div>
         </div>
       )}
     </div>

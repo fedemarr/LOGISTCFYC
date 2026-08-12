@@ -50,9 +50,13 @@ export default function LoginPage() {
     <main className="bg-bg flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="items-center text-center">
-          <div className="bg-primary mb-1 flex size-11 items-center justify-center rounded-lg">
-            <span className="text-primary-foreground text-xl font-bold">F</span>
-          </div>
+          <div
+            className="mb-1 size-11 rounded-lg"
+            style={{
+              background: "linear-gradient(135deg, var(--route-1), var(--route-2))",
+            }}
+            aria-hidden
+          />
           <CardTitle>FYC — Panel de Operaciones</CardTitle>
           <CardDescription>Ingresá con tu usuario de trabajo.</CardDescription>
         </CardHeader>

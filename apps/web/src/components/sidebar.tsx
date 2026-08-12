@@ -101,7 +101,7 @@ export function SidebarNav({
             className={cn(
               "focus-visible:ring-3 focus-visible:ring-ring/40 flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium outline-none transition-colors",
               active
-                ? "bg-primary/10 text-primary"
+                ? "bg-surface-3 text-text"
                 : "text-text-muted hover:bg-muted hover:text-text",
             )}
             aria-current={active ? "page" : undefined}

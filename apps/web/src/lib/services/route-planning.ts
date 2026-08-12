@@ -28,20 +28,27 @@ import { runPackageTransition } from "./state-machine";
 /** Capacidad asumida si el vehículo no tiene `capacity_packages` cargado (§8: referencia de "40 paradas"). */
 const DEFAULT_VEHICLE_CAPACITY = 40;
 
-/** Paleta de colores para diferenciar rutas en la etiqueta impresa (§9.2) — provisoria, se realinea con el design system en el rediseño visual del panel. */
+/**
+ * Paleta de rutas — 12 colores fijos por índice (PROMPT-FRONTEND-V2 §2),
+ * identidad de la ruta en todo el sistema: panel, mapa, app del chofer y
+ * la banda de la etiqueta impresa (§9.2). Debe ser un espejo literal de
+ * `--route-1..12` en `@fyc/config/tailwind/tokens.css` — no se importa el
+ * CSS acá porque este archivo corre en el servidor (generación de la
+ * propuesta y del PDF), no en el navegador.
+ */
 const ROUTE_COLORS = [
-  "#2563EB",
-  "#DC2626",
-  "#16A34A",
-  "#D97706",
-  "#7C3AED",
-  "#0891B2",
-  "#DB2777",
-  "#65A30D",
-  "#EA580C",
-  "#4338CA",
-  "#0D9488",
-  "#B91C1C",
+  "#0EA5E9",
+  "#A855F7",
+  "#22C55E",
+  "#EAB308",
+  "#F97316",
+  "#EC4899",
+  "#14B8A6",
+  "#6366F1",
+  "#84CC16",
+  "#F43F5E",
+  "#06B6D4",
+  "#8B5CF6",
 ];
 
 /**

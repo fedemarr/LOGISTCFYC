@@ -49,10 +49,10 @@ autorización:
 
 **Último commit en `main`:** revisá `git log --oneline -10` al arrancar — este documento
 puede quedar desactualizado si una sesión anterior avanzó más y no llegó a actualizarlo.
-Al día de escribir esto: FASE 1 a 6 **cerradas**. Lo único que queda pendiente de lo que
-Fede pidió explícitamente es el rediseño visual del panel real (no un mock aparte) siguiendo
-`PROMPT-FRONTEND-V2.md` + `mockup.html` (ambos en la raíz del repo, trackeados en git desde
-el commit de FASE 5) — es el próximo paso, ver §6.
+Al día de escribir esto: FASE 1 a 6 **cerradas**, y el rediseño visual del panel real
+(`PROMPT-FRONTEND-V2.md` + `mockup.html`) también **aplicado** con alcance acotado (ver
+ADR-039 y el detalle en §6) — todavía sin que Fede lo haya visto con sus propios ojos en el
+deploy, eso es lo primero que falta.
 
 **Repo:** `https://github.com/fedemarr/LOGISTCFYC` (rama `main`). El working tree debería
 estar limpio; si no lo está, mirá qué quedó a medio hacer antes de seguir.
@@ -370,7 +370,9 @@ Git integration activa. Las 4 vars core ya están en Vercel **Production** (ver 
 cuando llegues ahí, no antes):
 
 - `GOOGLE_GEOCODING_API_KEY` / `GOOGLE_ROUTES_API_KEY` / `GOOGLE_VISION_API_KEY` — FASE 5/6
-- `NEXT_PUBLIC_MAPTILER_KEY` — FASE 6 (mapas del panel)
+- `NEXT_PUBLIC_MAPTILER_KEY` — opcional. El mapa de `/ruteo` usa tiles gratuitos de Carto
+  (`dark-matter`/`positron`) que no la necesitan; solo hace falta si en algún momento se
+  quiere el estilo `dataviz` de MapTiler que pide el documento originalmente.
 - Cuenta de Expo/EAS para builds de distribución — FASE 7 en adelante
 - `SENTRY_DSN` — FASE 13
 - Datos de negocio de la sección 20 del documento madre (nombre del rol dispatcher, tipo de
@@ -398,40 +400,71 @@ $env:NODE_ENV="production"; pnpm exec dotenv -e ../../.env -- next build
 Si algo de esto falla, arreglalo antes de seguir avanzando de fase — no construyas FASE 3
 sobre una FASE 2 rota.
 
-## 6. Qué sigue: el rediseño visual del panel real
+### Rediseño visual (PROMPT-FRONTEND-V2) ✅ — alcance acotado, ver ADR-039
 
-FASE 1 a 6 están cerradas (backend + UI funcional). Lo único que falta de lo que Fede pidió
-explícitamente es esto — **no hay más fases de backend pendientes en la cola actual**, salvo
-que Fede pida seguir con FASE 7+ del documento madre (app mobile).
+FASE 1 a 6 cerradas, y encima el rediseño visual que Fede pidió explícitamente
+("quiero que se vea de esa manera", señalando `PROMPT-FRONTEND-V2.md` + `mockup.html`) ya
+está aplicado **sobre el panel real** (eligió expresamente "Reemplazar el diseño del panel
+real" cuando se le preguntó — no es un mock aparte).
 
-Pedido explícito de Fede: **"quiero que se vea de esa manera"**, señalando
-`PROMPT-FRONTEND-V2.md` + `mockup.html` (ambos en la raíz del repo). Ante la pregunta
-explícita de si aplicar esto sobre las pantallas reales o construir un mock aparte con datos
-falsos, **eligió expresamente "Reemplazar el diseño del panel real (Recomendado)"** — es
-decir: tomar las pantallas ya funcionales (con datos reales de Supabase: shell, sidebar,
-login, CRUD de usuarios/vehículos/clientes/contenedores, `/deposito`, y la nueva pantalla de
-planner de FASE 6) y aplicarles el sistema de diseño de `PROMPT-FRONTEND-V2.md` — **no**
-crear una maqueta desconectada de la base real.
+**Lo que se hizo:**
 
-Puntos clave del sistema de diseño (leer ambos archivos completos antes de tocar nada, son
-la fuente de verdad — no improvises tokens):
+- **Tokens** (`packages/config/tailwind/tokens.css`, reescrito completo): dark-first
+  (`:root`/`[data-theme="dark"]` = paleta oscura, `[data-theme="light"]` la overridea),
+  hex exactos del documento (`--bg:#0F1115`/`#F7F8FA`, `--surface`/`-2`/`-3`,
+  `--border`/`-2`, `--text`, `--muted`/`-2`). Paleta de 12 colores de ruta
+  (`--route-1..12`) + variantes `-light` (luminosidad −12%) para el tema claro.
+- **Fuentes**: Archivo (`--font-sans`) + JetBrains Mono (`--font-mono`) vía
+  `next/font/google` en `layout.tsx`. Clase `.font-data` (en `globals.css`, capa
+  `@layer utilities`) = mono + `tabular-nums` — usala en TODO dato operativo nuevo
+  (códigos, bultos, km, horas), no la clase genérica `font-mono` de Tailwind.
+- **Tema**: `next-themes` con `attribute="data-theme"` (NO `"class"` — los tokens usan
+  `[data-theme]`, no `.dark`), `defaultTheme="dark"`. `ThemeProvider` en
+  `components/theme-provider.tsx`, toggle en `components/theme-toggle.tsx` (montado en el
+  topbar mobile y en el footer del sidebar desktop de `app-shell.tsx`).
+- **Costilla**: clase utilitaria `.spine` (`globals.css`) — barra de 4px, `position:
+absolute; left:0`, color inyectado por `style`. Aplicada en `RouteCard` de `/ruteo`.
+- **`/ruteo` rediseñado**: layout de dos columnas (tarjetas 320px | mapa), `RouteCard` con
+  costilla + número de ruta en mono + avatar de chofer + stats en mono + barra de
+  ocupación (verde <85%/ámbar 85-100%/rojo >100%, necesita `vehicles.capacity_packages` —
+  el endpoint `GET /api/operations/:id/routes` ahora también devuelve `driverName`,
+  `vehiclePlate`, `capacityPackages` y `depot`). **Mapa real** en
+  `app/(panel)/ruteo/route-map.tsx` — MapLibre GL JS + tiles gratuitos de Carto
+  (`dark-matter`/`positron`, no hace falta `NEXT_PUBLIC_MAPTILER_KEY`), pines coloreados
+  por ruta, trazado punteado, resalte al pasar el mouse por la tarjeta
+  (`setPaintProperty`, sin re-render), `fitBounds` automático, cambio de estilo completo
+  (no filtro CSS) al cambiar de tema. Sin territorios (turf) ni clustering por zoom — ver
+  ADR-039.
+- `ROUTE_COLORS` en `lib/services/route-planning.ts` ahora es un espejo literal de
+  `--route-1..12` (antes eran colores provisorios).
+- **Bug real encontrado y arreglado**: el shim de shadcn en `globals.css` tenía
+  `--primary: var(--primary);` (y lo mismo con `--muted`/`--border`) — dos reglas `:root`
+  con el mismo nombre de custom property, ciclo de auto-referencia, valor inválido. Bordes
+  y accent color podían estar rotos desde antes de esta sesión sin que ningún test lo
+  detectara. Reescrito para mapear `@theme inline` directo a los nombres reales de
+  `tokens.css`, sin `:root` intermedio.
 
-- Tipografías Archivo (sans) + JetBrains Mono (mono, `tabular-nums` para números/códigos).
-- Tema oscuro por defecto, con override `[data-theme="light"]` (usar `next-themes` para el
-  toggle). Tokens hex exactos en `PROMPT-FRONTEND-V2.md` (`--bg:#0F1115` oscuro /
-  `#F7F8FA` claro, etc.) — no inventes otros.
-- Paleta fija de 12 colores para rutas + el elemento "costilla" (barra vertical de 4px de
-  color) como el único adorno visual del sistema — no agregues ornamentación nueva que no
-  esté en el mockup.
-- Mapa con MapLibre GL JS + estilos MapTiler/Carto dataviz (vas a necesitar
-  `NEXT_PUBLIC_MAPTILER_KEY`, todavía no conseguida, ver §4) para la pantalla de planner.
-- 8 sub-fases (F1-F8) descriptas en `PROMPT-FRONTEND-V2.md` — seguilas en orden, no saltees
-  al componente final sin las fundaciones (tokens/fuentes/tema primero).
+**Lo que NO se hizo (a propósito, ver ADR-039):**
 
-Cerrar esto con el mismo ritual: suite verde (incluye verificación visual manual/capturas si
-hace falta, no solo tests automatizados — es un cambio de UI), ADRs de cualquier desvío del
-mockup que sea necesario por integrarlo con datos reales, actualizar este archivo, commit +
-push.
+- `/operaciones` (bandeja de excepciones) y la app del chofer (`/app/*`) del documento —
+  dependen de datos que el backend real todavía no tiene (incidencias con SLA es FASE
+  11/12; la app del chofer es `apps/mobile`, Expo nativo, FASE 7-10 — un prototipo web
+  paralelo hubiera duplicado ese trabajo).
+- Pixel a pixel en cada CRUD individual — ya heredan los tokens compartidos desde FASE 4,
+  se tocó puntualmente `.font-data` donde hay datos operativos.
+- **Verificación visual real (ojos humanos comparando con el mockup)** — no hay
+  herramienta de captura de pantalla en este entorno. Se verificó con `typecheck`/`lint`/
+  `test`/`build` en verde y un smoke test manual (`next start` + `curl`: HTML 200, ambos
+  bloques de tokens presentes en el CSS compilado, script de `next-themes` inyectando
+  `data-theme`) — pero **Fede todavía no lo vio con sus propios ojos**. Es el primer paso
+  pendiente real de todo este trabajo.
+
+**No hay más fases de backend pendientes en la cola actual.** Lo que sigue, en orden de
+probabilidad:
+
+1. Que Fede revise el resultado visual en el deploy y pida ajustes puntuales.
+2. Profundizar el mapa de `/ruteo` (territorios con turf, clustering) si hace falta.
+3. Seguir con FASE 7+ del documento madre (`apps/mobile`, app del chofer) si Fede lo pide.
 
 ## 7. Ritual al cerrar cada fase (no te lo saltees aunque no pares a pedir aprobación)
 

@@ -8,6 +8,7 @@ import { createSupabaseClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SidebarNav } from "@/components/sidebar";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Toaster } from "@/components/ui/toast";
 
 /**
@@ -147,6 +148,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Menu className="size-4" />
           </Button>
           <span className="text-sm font-semibold">FYC</span>
+          <div className="ml-auto">
+            <ThemeToggle />
+          </div>
         </header>
 
         <main className="mx-auto w-full max-w-6xl flex-1 p-4 sm:p-6">{children}</main>
@@ -157,11 +161,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
 function Brand() {
   return (
-    <div className="flex items-center gap-2 px-4 py-4">
-      <div className="bg-primary flex size-7 items-center justify-center rounded-md">
-        <span className="text-primary-foreground text-sm font-bold">F</span>
-      </div>
-      <span className="text-base font-semibold tracking-tight">FYC</span>
+    <div className="flex items-center gap-2.5 px-4 py-4">
+      <div
+        className="size-[22px] shrink-0 rounded-[5px]"
+        style={{ background: "linear-gradient(135deg, var(--route-1), var(--route-2))" }}
+        aria-hidden
+      />
+      <span className="text-sm font-bold tracking-tight">FYC</span>
     </div>
   );
 }
@@ -186,6 +192,7 @@ function UserFooter({
         <p className="truncate text-sm font-medium">{name}</p>
         {org && <p className="text-text-muted truncate text-xs">{org}</p>}
       </div>
+      <ThemeToggle />
       <Button
         variant="ghost"
         size="icon-sm"

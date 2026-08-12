@@ -10,12 +10,20 @@ import {
   toAppError,
 } from "@/lib/api";
 import { db } from "@/lib/db";
-import { operations, routeStops, routes } from "@/lib/db/schema";
-import { generateRouteProposal } from "@/lib/services/route-planning";
+import { operations, routeStops, routes, users, vehicles } from "@/lib/db/schema";
+import {
+  generateRouteProposal,
+  resolveDepotLocation,
+} from "@/lib/services/route-planning";
 
 const paramsSchema = z.object({ id: z.string().uuid("id de operación inválido") });
 
-/** GET /api/operations/:id/routes — rutas de la operación con conteo de paradas. */
+/**
+ * GET /api/operations/:id/routes — rutas de la operación con conteo de
+ * paradas y capacidad del vehículo (para la barra de ocupación del
+ * planificador, PROMPT-FRONTEND-V2 §6.1: verde <85%, ámbar 85-100%, rojo
+ * >100%).
+ */
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -47,11 +55,38 @@ export async function GET(
           .select({ n: count() })
           .from(routeStops)
           .where(eq(routeStops.routeId, route.id));
-        return { ...route, stopCount: stopCount?.n ?? 0 };
+
+        const [driver] = route.assignedDriverId
+          ? await db
+              .select({ fullName: users.fullName })
+              .from(users)
+              .where(eq(users.id, route.assignedDriverId))
+          : [];
+        const [vehicle] = route.vehicleId
+          ? await db
+              .select({
+                capacityPackages: vehicles.capacityPackages,
+                plate: vehicles.plate,
+              })
+              .from(vehicles)
+              .where(eq(vehicles.id, route.vehicleId))
+          : [];
+
+        return {
+          ...route,
+          stopCount: stopCount?.n ?? 0,
+          driverName: driver?.fullName ?? null,
+          vehiclePlate: vehicle?.plate ?? null,
+          capacityPackages: vehicle?.capacityPackages ?? null,
+        };
       }),
     );
 
-    return jsonOk({ items });
+    // El depósito puede no estar configurado todavía (ADR-033) — no
+    // rompe el listado, el mapa simplemente no dibuja el marcador.
+    const depot = await resolveDepotLocation(ctx.orgId).catch(() => null);
+
+    return jsonOk({ items, depot });
   } catch (err) {
     return jsonError(toAppError(err));
   }

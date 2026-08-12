@@ -242,6 +242,9 @@ export interface RouteItem {
   plannedStops: number | null;
   colorHex: string | null;
   stopCount: number;
+  driverName: string | null;
+  vehiclePlate: string | null;
+  capacityPackages: number | null;
 }
 
 export interface GenerateRouteProposalResponse {
