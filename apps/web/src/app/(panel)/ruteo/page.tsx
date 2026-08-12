@@ -187,7 +187,7 @@ export default function RuteoPage() {
 
       {routeList && routeList.length > 0 && (
         <div className="mt-4 grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[320px_1fr]">
-          <div className="border-border bg-surface flex flex-col gap-2 overflow-y-auto border-r p-3">
+          <div className="border-border bg-surface flex min-h-0 flex-col gap-2 overflow-y-auto border-r p-3">
             {routeList.map((route) => (
               <RouteCard
                 key={route.id}
