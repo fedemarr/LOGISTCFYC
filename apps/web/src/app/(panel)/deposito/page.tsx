@@ -396,6 +396,27 @@ function PendingCard({
   const { toast } = useToast();
   const [drafts, setDrafts] = React.useState<Record<string, string>>({});
   const [busyId, setBusyId] = React.useState<string | null>(null);
+  const [busyAll, setBusyAll] = React.useState(false);
+
+  // Si el manifiesto ya trajo la dirección (import con columna de
+  // dirección), precargamos el input con eso — el humano solo tiene que
+  // confirmar que el paquete llegó físicamente, no retipear nada.
+  React.useEffect(() => {
+    if (!items) return;
+    setDrafts((prev) => {
+      const next = { ...prev };
+      for (const pkg of items) {
+        if (next[pkg.id] === undefined && pkg.rawAddressText) {
+          next[pkg.id] = pkg.rawAddressText;
+        }
+      }
+      return next;
+    });
+  }, [items]);
+
+  async function resolveOne(id: string, rawAddressText: string) {
+    await api.post(`/api/packages/${id}/resolve`, { rawAddressText });
+  }
 
   async function handleResolve(id: string) {
     const rawAddressText = drafts[id]?.trim();
@@ -405,7 +426,7 @@ function PendingCard({
     }
     setBusyId(id);
     try {
-      await api.post(`/api/packages/${id}/resolve`, { rawAddressText });
+      await resolveOne(id, rawAddressText);
       toast({ title: "Dirección resuelta", variant: "success" });
       onResolved();
     } catch (err) {
@@ -416,6 +437,35 @@ function PendingCard({
     } finally {
       setBusyId(null);
     }
+  }
+
+  // Resuelve de una todos los que ya tienen dirección cargada (del
+  // manifiesto o ya tipeada a mano) — pensado para el caso "importé un
+  // CSV con todo adentro, no quiero tocar uno por uno".
+  const readyToResolve = (items ?? []).filter(
+    (pkg) => (drafts[pkg.id]?.trim().length ?? 0) >= 3,
+  );
+
+  async function handleResolveAll() {
+    setBusyAll(true);
+    let ok = 0;
+    let failed = 0;
+    for (const pkg of readyToResolve) {
+      const rawAddressText = drafts[pkg.id]!.trim();
+      try {
+        await resolveOne(pkg.id, rawAddressText);
+        ok++;
+      } catch {
+        failed++;
+      }
+    }
+    setBusyAll(false);
+    toast({
+      title:
+        failed > 0 ? `${ok} resueltos, ${failed} fallaron` : `${ok} paquetes resueltos`,
+      variant: failed > 0 ? "error" : "success",
+    });
+    onResolved();
   }
 
   return (
@@ -433,33 +483,47 @@ function PendingCard({
             si algo no se puede resolver, aparece acá.
           </p>
         ) : (
-          items.map((pkg) => (
-            <div
-              key={pkg.id}
-              className="border-border flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="font-medium">{pkg.internalCode}</div>
-                <div className="text-text-muted text-xs">
-                  {pkg.trackingCode ?? "sin código de proveedor"}
-                  {pkg.recipientName ? ` · ${pkg.recipientName}` : ""}
-                </div>
+          <>
+            {readyToResolve.length > 1 && (
+              <div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleResolveAll()}
+                  disabled={busyAll || busyId !== null}
+                >
+                  Resolver todos ({readyToResolve.length})
+                </Button>
               </div>
-              <Input
-                placeholder="Dirección completa"
-                className="sm:w-72"
-                value={drafts[pkg.id] ?? ""}
-                onChange={(e) => setDrafts((d) => ({ ...d, [pkg.id]: e.target.value }))}
-              />
-              <Button
-                size="sm"
-                onClick={() => void handleResolve(pkg.id)}
-                disabled={busyId === pkg.id}
+            )}
+            {items.map((pkg) => (
+              <div
+                key={pkg.id}
+                className="border-border flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center"
               >
-                Resolver
-              </Button>
-            </div>
-          ))
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium">{pkg.internalCode}</div>
+                  <div className="text-text-muted text-xs">
+                    {pkg.trackingCode ?? "sin código de proveedor"}
+                    {pkg.recipientName ? ` · ${pkg.recipientName}` : ""}
+                  </div>
+                </div>
+                <Input
+                  placeholder="Dirección completa"
+                  className="sm:w-72"
+                  value={drafts[pkg.id] ?? ""}
+                  onChange={(e) => setDrafts((d) => ({ ...d, [pkg.id]: e.target.value }))}
+                />
+                <Button
+                  size="sm"
+                  onClick={() => void handleResolve(pkg.id)}
+                  disabled={busyId === pkg.id || busyAll}
+                >
+                  Resolver
+                </Button>
+              </div>
+            ))}
+          </>
         )}
       </CardContent>
     </Card>

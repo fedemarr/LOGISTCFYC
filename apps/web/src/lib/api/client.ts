@@ -203,6 +203,8 @@ export interface PendingPackageItem {
   internalCode: string;
   trackingCode: string | null;
   recipientName: string | null;
+  recipientPhone: string | null;
+  rawAddressText: string | null;
   labelPhotoUrl: string | null;
   createdAt: string;
 }
