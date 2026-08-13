@@ -21,6 +21,11 @@
       "channel": "preview",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://xdhjxecrozcozcstndbr.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhkaGp4ZWNyb3pjb3pjc3RuZGJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0NTMxODAsImV4cCI6MjEwMjAyOTE4MH0.qwwwo9pFRwlAHFTaQlh7thx4BFT8SUfBPuyPTA4putw",
+        "EXPO_PUBLIC_API_URL": "https://web-five-livid-32.vercel.app"
       }
     },
     "production": {
