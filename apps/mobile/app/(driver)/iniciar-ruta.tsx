@@ -175,7 +175,7 @@ export default function IniciarRutaScreen() {
         locationPermissionGranted: attestation.locationPermissionGranted,
         routeDownloaded: attestation.routeDownloaded,
       });
-      router.replace("/inicio");
+      router.replace("/ruta");
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo iniciar la ruta");
       setSubmitting(false);

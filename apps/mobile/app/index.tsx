@@ -14,5 +14,5 @@ import { useSession } from "../src/context/session";
 export default function Index() {
   const { session, isLoading } = useSession();
   if (isLoading) return null;
-  return <Redirect href={session ? "/(driver)/inicio" : "/login"} />;
+  return <Redirect href={session ? "/(driver)/(tabs)/ruta" : "/login"} />;
 }

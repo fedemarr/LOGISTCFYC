@@ -9,15 +9,16 @@ import {
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import * as Haptics from "expo-haptics";
-import { useSyncStore } from "../../src/lib/sync/store";
+import { useSyncStore } from "../../../src/lib/sync/store";
 import {
   getLocalRoute,
   reorderStopsLocally,
   setLocalRouteStatus,
-} from "../../src/lib/db/routes";
-import type { LocalStopRow } from "../../src/lib/db/schema";
-import { enqueueRouteFinished, enqueueStopsReordered } from "../../src/lib/delivery";
-import { colors, fonts, radius, spacing, touch } from "../../src/theme/tokens";
+} from "../../../src/lib/db/routes";
+import type { LocalStopRow } from "../../../src/lib/db/schema";
+import { enqueueRouteFinished, enqueueStopsReordered } from "../../../src/lib/delivery";
+import { RouteMapView } from "../../../src/components/RouteMapView";
+import { colors, fonts, radius, spacing, touch } from "../../../src/theme/tokens";
 
 const STOP_LABELS: Record<string, string> = {
   PENDING: "Pendiente",
@@ -28,21 +29,21 @@ const STOP_LABELS: Record<string, string> = {
 };
 
 /**
- * Mis paradas (§9.5, §9.8, §9.9) — el chofer llega acá desde Inicio una
- * vez que la ruta está en la calle:
+ * "Ruta" — tab principal del chofer (§9.5, §9.8, §9.9), fusiona lo que
+ * antes eran dos pantallas separadas (Inicio + Mis paradas) en una sola,
+ * con el mapa arriba (pedido explícito de Fede) en vez de una lista
+ * pelada:
  *
- *   - Lista completa de paradas con estado y progreso del día.
- *   - Reorden manual (§9.8): botones ↑/↓ por parada; cada movimiento
- *     re-secuencia local e encola STOPS_REORDERED (offline-safe, el
- *     servidor valida que la lista nueva sea exactamente la misma).
- *   - "Finalizar ruta" (§9.9): encola ROUTE_FINISHED y marca la ruta
- *     local COMPLETED (el tracking se apaga solo, ver useDriverTracking).
- *   - Tap en una parada → pantalla de la parada (entrega/incidencia).
+ *   - Banner de conexión/sync + toggle "EN SERVICIO" (ex-Inicio).
+ *   - Mapa con pines numerados por parada, coloreados por estado.
+ *   - Lista completa debajo, con reorden manual (§9.8) y "Finalizar
+ *     ruta" (§9.9) — misma lógica que tenía `paradas.tsx` antes.
  */
-export default function ParadasScreen() {
+export default function RutaScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const { pendingCount, lastError } = useSyncStore();
+  const { isOnline, isSyncing, pendingCount, lastError } = useSyncStore();
+  const [onService, setOnService] = React.useState(false);
   const [routeInfo, setRouteInfo] = React.useState<
     | { routeId: string; routeNumber: number; status: string; stops: LocalStopRow[] }
     | null
@@ -124,22 +125,54 @@ export default function ParadasScreen() {
       style={{ flex: 1, backgroundColor: colors.bg }}
       contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg }}
     >
-      <View style={{ gap: spacing.xs }}>
-        <Text style={{ fontFamily: fonts.sansBold, fontSize: 22, color: colors.text }}>
-          {routeInfo
-            ? `RUTA ${String(routeInfo.routeNumber).padStart(3, "0")}`
-            : "SIN RUTA"}
-        </Text>
-        <Text style={{ fontFamily: fonts.sans, fontSize: 14, color: colors.muted }}>
-          {completed} de {routeInfo?.stops.length ?? 0} paradas entregadas
-        </Text>
+      <ConnectionBanner
+        isOnline={isOnline}
+        isSyncing={isSyncing}
+        pendingCount={pendingCount}
+      />
+
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <View style={{ gap: spacing.xs }}>
+          <Text style={{ fontFamily: fonts.sansBold, fontSize: 22, color: colors.text }}>
+            {routeInfo
+              ? `RUTA ${String(routeInfo.routeNumber).padStart(3, "0")}`
+              : "SIN RUTA"}
+          </Text>
+          <Text style={{ fontFamily: fonts.sans, fontSize: 14, color: colors.muted }}>
+            {completed} de {routeInfo?.stops.length ?? 0} paradas entregadas
+          </Text>
+        </View>
+        <TouchableOpacity
+          onPress={() => setOnService((v) => !v)}
+          style={{
+            paddingHorizontal: spacing.md,
+            height: 44,
+            borderRadius: radius.md,
+            backgroundColor: onService ? colors.success : colors.surface2,
+            borderWidth: 1,
+            borderColor: onService ? colors.success : colors.border,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: fonts.sansSemibold,
+              fontSize: 13,
+              color: onService ? colors.bg : colors.muted,
+            }}
+          >
+            {onService ? "⚡ EN SERVICIO" : "Fuera de servicio"}
+          </Text>
+        </TouchableOpacity>
       </View>
 
-      {pendingCount > 0 && (
-        <Text style={{ fontFamily: fonts.sans, fontSize: 13, color: colors.warning }}>
-          {pendingCount} acción(es) pendientes de sincronizar
-        </Text>
-      )}
       {lastError && (
         <Text style={{ fontFamily: fonts.sans, fontSize: 13, color: colors.warning }}>
           {lastError}
@@ -149,14 +182,29 @@ export default function ParadasScreen() {
       {!routeInfo && (
         <View style={cardStyle}>
           <Text style={{ fontFamily: fonts.sans, fontSize: 15, color: colors.muted }}>
-            Descargá tu ruta desde Inicio antes de ver paradas.
+            Todavía no tenés una ruta descargada — pedila desde Más.
           </Text>
         </View>
       )}
 
+      {routeInfo && routeInfo.stops.length > 0 && (
+        <RouteMapView
+          stops={routeInfo.stops
+            .filter((s) => s.lat != null && s.lng != null)
+            .map((s) => ({
+              id: s.id,
+              sequence: s.sequence,
+              lat: s.lat!,
+              lng: s.lng!,
+              status: s.status,
+            }))}
+          onStopPress={(stopId) => router.push(`/parada/${stopId}`)}
+        />
+      )}
+
       {routeInfo &&
         routeInfo.stops.map((stop) => {
-          const completed = stop.status === "COMPLETED" || stop.status === "FAILED";
+          const completedStop = stop.status === "COMPLETED" || stop.status === "FAILED";
           return (
             <View key={stop.id} style={cardStyle}>
               <TouchableOpacity
@@ -207,7 +255,7 @@ export default function ParadasScreen() {
                 </Text>
               </TouchableOpacity>
 
-              {isInTransit && !completed && (
+              {isInTransit && !completedStop && (
                 <View style={{ flexDirection: "column", gap: spacing.xs }}>
                   <TouchableOpacity
                     onPress={() => void moveStop(stop.id, -1)}
@@ -254,19 +302,6 @@ export default function ParadasScreen() {
           )}
         </TouchableOpacity>
       )}
-
-      <TouchableOpacity
-        onPress={() => router.push("/inicio")}
-        style={{
-          minHeight: touch.minTarget,
-          justifyContent: "center",
-          alignItems: "center",
-        }}
-      >
-        <Text style={{ fontFamily: fonts.sans, fontSize: 15, color: colors.muted }}>
-          Volver a Inicio
-        </Text>
-      </TouchableOpacity>
     </ScrollView>
   );
 }
@@ -282,6 +317,49 @@ function statusColor(status: string): string {
     default:
       return colors.pending;
   }
+}
+
+function ConnectionBanner({
+  isOnline,
+  isSyncing,
+  pendingCount,
+}: {
+  isOnline: boolean;
+  isSyncing: boolean;
+  pendingCount: number;
+}) {
+  if (isOnline && pendingCount === 0) return null;
+
+  return (
+    <View
+      style={{
+        backgroundColor: isOnline ? "rgba(245,158,11,0.13)" : "rgba(239,68,68,0.13)",
+        borderWidth: 1,
+        borderColor: isOnline ? "rgba(245,158,11,0.3)" : "rgba(239,68,68,0.3)",
+        borderRadius: radius.md,
+        paddingVertical: spacing.sm,
+        paddingHorizontal: spacing.md,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: spacing.sm,
+      }}
+    >
+      <Text
+        style={{
+          fontFamily: fonts.sansMedium,
+          fontSize: 13,
+          color: isOnline ? colors.warning : colors.danger,
+          flex: 1,
+        }}
+      >
+        {!isOnline
+          ? "Sin conexión — todo se guarda local"
+          : isSyncing
+            ? "Sincronizando…"
+            : `${pendingCount} acción(es) pendientes de sincronizar`}
+      </Text>
+    </View>
+  );
 }
 
 const cardStyle = {

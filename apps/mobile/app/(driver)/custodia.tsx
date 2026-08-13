@@ -79,13 +79,13 @@ export default function CustodiaScreen() {
           {error ?? "No se pudo leer el estado de custodia"}
         </Text>
         <TouchableOpacity
-          onPress={() => router.push("/inicio")}
+          onPress={() => router.push("/ruta")}
           style={secondaryButtonStyle}
         >
           <Text
             style={{ fontFamily: fonts.sansSemibold, fontSize: 17, color: colors.text }}
           >
-            Volver a Inicio
+            Volver a Ruta
           </Text>
         </TouchableOpacity>
       </ScrollView>
