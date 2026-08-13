@@ -106,9 +106,21 @@ async function setRouteStatus(params: {
   actorRole: string;
   metadata?: Record<string, unknown>;
   occurredAt?: Date;
+  /** Columnas extra a pisar en el mismo UPDATE (ej. `startedAt` al arrancar). */
+  extraFields?: Partial<typeof routes.$inferInsert>;
   tx: Tx;
 }): Promise<void> {
-  const { orgId, route, toStatus, actorId, actorRole, metadata, occurredAt, tx } = params;
+  const {
+    orgId,
+    route,
+    toStatus,
+    actorId,
+    actorRole,
+    metadata,
+    occurredAt,
+    extraFields,
+    tx,
+  } = params;
   assertTransition(
     route.status,
     toStatus,
@@ -119,7 +131,11 @@ async function setRouteStatus(params: {
   const now = occurredAt ?? new Date();
   await tx
     .update(routes)
-    .set({ status: toStatus as typeof routes.$inferSelect.status, updatedAt: now })
+    .set({
+      status: toStatus as typeof routes.$inferSelect.status,
+      updatedAt: now,
+      ...extraFields,
+    })
     .where(eq(routes.id, route.id));
   await logDomainEvent(
     {
@@ -177,6 +193,14 @@ async function setVehicleStatus(params: {
     },
     tx,
   );
+}
+
+/** Vuelve a leer una ruta por id — para no armar el estado final con un objeto en memoria que quedó viejo tras un UPDATE. */
+async function reloadRoute(
+  route: typeof routes.$inferSelect,
+): Promise<typeof routes.$inferSelect> {
+  const [fresh] = await db.select().from(routes).where(eq(routes.id, route.id));
+  return fresh ?? route;
 }
 
 async function getDriverRoute(
@@ -534,7 +558,12 @@ export async function submitCustodyCount(
     await applyCustodyConfirmed(orgId, driverId, route, acta.id);
   }
 
-  return buildCustodyState(orgId, driverId, route);
+  // `applyCustodyConfirmed` pudo haber pasado la ruta APPROVED -> ASSIGNED
+  // en la base — releer antes de armar el estado final, si no `canStart`
+  // se calcula con el `route` en memoria (todavía APPROVED) y da false
+  // aunque la custodia haya quedado confirmada.
+  const freshRoute = matched ? await reloadRoute(route) : route;
+  return buildCustodyState(orgId, driverId, freshRoute);
 }
 
 /**
@@ -970,7 +999,11 @@ export async function overrideCustody(
   // decisión del dispatcher queda auditada en CUSTODY_OVERRIDDEN.
   await applyCustodyConfirmed(orgId, route.assignedDriverId, route, acta.id);
 
-  return buildCustodyState(orgId, route.assignedDriverId, route);
+  // Mismo motivo que en `submitCustodyCount`: releer la ruta después de
+  // `applyCustodyConfirmed`, si no `canStart` sale false con el estado
+  // viejo (APPROVED) aunque la ruta ya haya pasado a ASSIGNED.
+  const freshRoute = await reloadRoute(route);
+  return buildCustodyState(orgId, route.assignedDriverId, freshRoute);
 }
 
 export interface StartRouteInput {
@@ -1072,6 +1105,7 @@ export async function startRoute(
         routeDownloaded: input.routeDownloaded,
       },
       occurredAt: startedAt,
+      extraFields: { startedAt },
       tx,
     });
 

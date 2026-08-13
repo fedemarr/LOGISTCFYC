@@ -49,14 +49,33 @@ autorización:
 
 **Último commit en `main`:** revisá `git log --oneline -10` al arrancar — este documento
 puede quedar desactualizado si una sesión anterior avanzó más y no llegó a actualizarlo.
-Al día de escribir esto: FASE 1 a 8 **cerradas** del lado del código (backend completo +
-`apps/mobile` con navegación, sync offline y escaneo/OCR), y el rediseño visual del panel
-real (`PROMPT-FRONTEND-V2.md` + `mockup.html`) también **aplicado** con alcance acotado (ver
-ADR-039). Dos bugs reales de producción encontrados y arreglados post-deploy (ADR-040) — el
-deploy hoy carga limpio, verificado con `smoke:browser`. **FASE 8 tiene una verificación
-pendiente que solo un dispositivo real puede hacer** (§14: probar OCR con 20 etiquetas
-reales) — ver ADR-042 y §3. Fede pidió explícitamente seguir fase por fase hacia adelante
-("seguimos con fase 7 y para adelante") — el trabajo que sigue es FASE 9 (custodia), ver §6.
+Al día de escribir esto (2026-08-13): **FASE 1 a 11 cerradas del lado del código**
+(backend completo, `apps/mobile` con navegación/sync offline/escaneo-OCR/custodia/tracking
+en vivo/evidencia de entrega, panel web con bandeja de operaciones y monitoreo en vivo), y
+el rediseño visual del panel real (`PROMPT-FRONTEND-V2.md` + `mockup.html`) también
+**aplicado** con alcance acotado (ver ADR-039). FASE 9/10/11 se codearon con `opencode`
+corriendo en paralelo sobre este mismo working tree (ver commits `fd6965b`/`30e83e1` del
+2026-08-12) — sin dejar ADR ni actualizar este archivo; **correr `pnpm test` reveló 3 bugs
+reales en `custody.ts`** (no los detectaba `tsc`/`eslint`) que se arreglaron después, ver
+ADR-044: `canStart` se calculaba con la ruta vieja en memoria después de confirmar custodia,
+y `startRoute()` nunca grababa `routes.started_at` — rompía en silencio el cálculo de
+tiempo transcurrido de `/monitoreo` (FASE 11). Con esos fixes, la suite completa de
+`apps/web` pasa 100% (excepto cuando la DB local tiene el ECONNRESET intermitente de
+ADR-042, que es de la conexión, no del código) y `apps/mobile` pasa 100% (19/19).
+
+Dos bugs reales de producción encontrados y arreglados post-deploy del rediseño (ADR-040), y
+tres más en el mapa de ruteo verificando en navegador real (ADR-043: MapLibre GL roto en
+producción, reemplazado por Leaflet; scroll trabado del panel de rutas que tapaba el botón
+Aprobar) — ninguno de los cinco lo detectaba `tsc`/`eslint`/`build`/`test`, todos aparecieron
+recién probando en un navegador real contra el deploy. El deploy hoy carga limpio, verificado
+con `smoke:browser`. **FASE 8 (OCR) y FASE 9-11 (custodia, tracking, evidencia de entrega,
+cámara) tienen una verificación pendiente que solo un dispositivo Android real puede hacer**
+(§14) — ver ADR-042 y §3. Hay un build de EAS actualizado con TODO el código hasta FASE 11
+para instalar y probar: pedile el link a quien corrió la última build, o corré
+`eas build --profile development --platform android` desde `apps/mobile` (ver §4, cuenta de
+Expo ya vinculada). Fede pidió explícitamente seguir fase por fase hacia adelante ("seguimos
+con fase 7 y para adelante") — el trabajo que sigue es **FASE 12** (ver documento madre),
+una vez que alguien confirme en un dispositivo real que FASE 8-11 funcionan.
 
 **Repo:** `https://github.com/fedemarr/LOGISTCFYC` (rama `main`). El working tree debería
 estar limpio; si no lo está, mirá qué quedó a medio hacer antes de seguir.

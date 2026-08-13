@@ -8,7 +8,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import {
@@ -78,22 +78,42 @@ describe("custodia y carga (integración contra Supabase real)", () => {
     current = null;
     if (!s) return;
 
+    // Algunos tests crean rutas/usuarios EXTRA aparte de los de `s` (ej. el
+    // chequeo cruzado de custodia, que arma una segunda ruta de otro
+    // chofer) — limpiar solo `s.routeId`/`s.driverId`/`s.adminId` deja
+    // huérfanos que bloquean los deletes de abajo por FK. Se resuelve todo
+    // por `orgId` en vez de por los ids puntuales del escenario principal.
+    const orgRoutes = await db
+      .select({ id: routes.id })
+      .from(routes)
+      .where(eq(routes.orgId, s.orgId));
+    const orgRouteIds = orgRoutes.map((r) => r.id);
+    const orgUsers = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.orgId, s.orgId));
+    const orgUserIds = orgUsers.map((u) => u.id);
+
     await purgeTestEvents(s.orgId);
     await db.delete(packageScans).where(eq(packageScans.orgId, s.orgId));
     await db.delete(custodyTransfers).where(eq(custodyTransfers.orgId, s.orgId));
-    await db.delete(routeStops).where(eq(routeStops.routeId, s.routeId));
+    if (orgRouteIds.length > 0) {
+      await db.delete(routeStops).where(inArray(routeStops.routeId, orgRouteIds));
+    }
     await db.delete(packages).where(eq(packages.orgId, s.orgId));
     await db.delete(routes).where(eq(routes.orgId, s.orgId));
     await db.delete(knownAddresses).where(eq(knownAddresses.orgId, s.orgId));
     await db.delete(containers).where(eq(containers.orgId, s.orgId));
     await db.delete(vehicles).where(eq(vehicles.orgId, s.orgId));
     await db.delete(operations).where(eq(operations.orgId, s.orgId));
-    await db.delete(userRoles).where(eq(userRoles.userId, s.driverId));
-    await db.delete(userRoles).where(eq(userRoles.userId, s.adminId));
+    if (orgUserIds.length > 0) {
+      await db.delete(userRoles).where(inArray(userRoles.userId, orgUserIds));
+    }
     await db.delete(users).where(eq(users.orgId, s.orgId));
     await db.delete(organizations).where(eq(organizations.id, s.orgId));
-    await supabaseAdmin.auth.admin.deleteUser(s.driverId).catch(() => {});
-    await supabaseAdmin.auth.admin.deleteUser(s.adminId).catch(() => {});
+    for (const userId of orgUserIds) {
+      await supabaseAdmin.auth.admin.deleteUser(userId).catch(() => {});
+    }
   }, 30_000);
 
   async function createScenario(label: string, packageCount: number): Promise<Scenario> {
@@ -147,7 +167,13 @@ describe("custodia y carga (integración contra Supabase real)", () => {
       .insert(vehicles)
       .values({
         orgId,
-        plate: `CUS-${id.slice(0, 6).toUpperCase()}`,
+        // No usar `id.slice(0, 6)`: `id` es `${runId}-${label}` y `runId`
+        // solo mide 8 caracteres, así que ese slice devolvía siempre el
+        // mismo prefijo (el de `runId`) sin importar `label` — todos los
+        // escenarios de la misma corrida generaban la MISMA patente,
+        // chocando contra `vehicles_plate_unique` en cuanto el cleanup de
+        // un test anterior se demoraba o fallaba un paso.
+        plate: `CUS-${randomUUID().slice(0, 6).toUpperCase()}`,
         status: "AVAILABLE",
         assignedDriverId: driverId,
         capacityPackages: 10,
@@ -408,10 +434,22 @@ describe("custodia y carga (integración contra Supabase real)", () => {
     });
 
     // Otra ruta APPROVED en la MISMA operación, con un paquete propio.
+    // El usuario tiene que existir de verdad en Supabase Auth primero —
+    // `users.id` tiene FK a `auth.users(id)`, un UUID inventado viola esa
+    // constraint (mismo patrón que `driver`/`admin` de `createScenario`).
+    const { data: otherAuth, error: otherAuthError } =
+      await supabaseAdmin.auth.admin.createUser({
+        email: `custody-cross-driver-${runId}@test`,
+        password: TEST_PASSWORD,
+        email_confirm: true,
+      });
+    if (otherAuthError || !otherAuth.user) {
+      throw otherAuthError ?? new Error("sin usuario para el otro chofer");
+    }
     const [otherDriver] = await db
       .insert(users)
       .values({
-        id: randomUUID(),
+        id: otherAuth.user.id,
         orgId: s.orgId,
         email: `custody-cross-driver-${runId}@test`,
         fullName: "Otro Chofer",
@@ -475,19 +513,20 @@ describe("custodia y carga (integración contra Supabase real)", () => {
       .returning();
     if (!otherRoute) throw new Error("no se pudo crear la otra ruta");
 
-    await db
-      .insert(routeStops)
-      .values({
-        routeId: otherRoute.id,
-        packageId: otherPkg.id,
-        sequence: 0,
-        status: "PENDING",
-      });
+    await db.insert(routeStops).values({
+      routeId: otherRoute.id,
+      packageId: otherPkg.id,
+      sequence: 0,
+      status: "PENDING",
+    });
     await db
       .update(packages)
       .set({ routeId: otherRoute.id, bulkNumber: 1 })
       .where(eq(packages.id, otherPkg.id));
 
+    // `afterEach` limpia todo lo que cuelga de `s.orgId` (rutas/paquetes
+    // extra, `otherDriver` en `users` y en Supabase Auth) — no hace falta
+    // limpieza en línea acá.
     const scan = await scanPackageForCustody(s.orgId, s.driverId, {
       routeId: s.routeId,
       rawCode: crossCode,

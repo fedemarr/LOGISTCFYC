@@ -1,10 +1,10 @@
 /**
- * Tests de integración contra Supabase real. `GOOGLE_GEOCODING_API_KEY` no
- * está configurada en este entorno (§18, todavía no se consiguió la key) —
- * eso es justo lo que se testea para el camino "not_configured" (§16:
- * "Geocoding falla → Marca FAILED, va a revisión manual"). Los caminos de
- * caché/known_addresses se testean pre-sembrando esas tablas, así nunca
- * dependen de la red ni de la key real.
+ * Tests de integración contra Supabase real. `GOOGLE_GEOCODING_API_KEY` SÍ
+ * está configurada en este entorno (§18) — el camino "not_configured" (§16:
+ * "Geocoding falla → Marca FAILED, va a revisión manual") se prueba
+ * apagando la env var puntualmente para ese test, no asumiendo que nunca
+ * hay key cargada. Los caminos de caché/known_addresses se testean
+ * pre-sembrando esas tablas, así nunca dependen de la red ni de la key real.
  */
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
@@ -101,14 +101,25 @@ describe("geocodeAddress (integración contra Supabase real)", () => {
   });
 
   it("sin GOOGLE_GEOCODING_API_KEY configurada, degrada a FAILED/not_configured", async () => {
-    expect(process.env.GOOGLE_GEOCODING_API_KEY ?? "").toBe("");
-    const result = await geocodeAddress(`Dirección sin cachear ${runId}-${randomUUID()}`);
-    expect(result).toMatchObject({
-      lat: null,
-      lng: null,
-      accuracy: "FAILED",
-      source: "not_configured",
-    });
+    // No asumir que el entorno nunca tiene la key real cargada (FASE 6 la
+    // agrega en local/producción para que el geocoding funcione de
+    // verdad) — se apaga a propósito solo para este test y se restaura
+    // después, así el camino "not_configured" queda probado siempre.
+    const original = process.env.GOOGLE_GEOCODING_API_KEY;
+    delete process.env.GOOGLE_GEOCODING_API_KEY;
+    try {
+      const result = await geocodeAddress(
+        `Dirección sin cachear ${runId}-${randomUUID()}`,
+      );
+      expect(result).toMatchObject({
+        lat: null,
+        lng: null,
+        accuracy: "FAILED",
+        source: "not_configured",
+      });
+    } finally {
+      if (original !== undefined) process.env.GOOGLE_GEOCODING_API_KEY = original;
+    }
   });
 });
 
@@ -133,14 +144,12 @@ describe("geocodeOperationPackages (integración contra Supabase real)", () => {
     });
     if (error || !data.user) throw error ?? new Error("sin usuario");
     userId = data.user.id;
-    await db
-      .insert(users)
-      .values({
-        id: userId,
-        orgId,
-        email: `geobatch-${runId}@test`,
-        fullName: "Geo Batch",
-      });
+    await db.insert(users).values({
+      id: userId,
+      orgId,
+      email: `geobatch-${runId}@test`,
+      fullName: "Geo Batch",
+    });
     await db.insert(userRoles).values({ userId, role: "warehouse" });
 
     const [op] = await db
@@ -163,53 +172,66 @@ describe("geocodeOperationPackages (integración contra Supabase real)", () => {
   }, 30_000);
 
   it("geocodifica lo resoluble (known_address pre-existente) y deja el resto en RECIBIDO", async () => {
-    const goodAddress = `Belgrano 2210, San Martín ${runId}`;
-    const hash = await hashNormalizedAddress(goodAddress);
-    await db.insert(knownAddresses).values({
-      orgId,
-      normalizedHash: hash,
-      rawText: goodAddress,
-      lat: -34.57,
-      lng: -58.53,
-      geocodeAccuracy: "ROOFTOP",
-    });
+    // Igual que el test de arriba: el paquete "bad" tiene una dirección
+    // sin sentido a propósito, para forzar el camino FAILED — con la key
+    // real configurada, la API de Google es lo bastante permisiva como
+    // para devolver *algo* igual, así que se apaga la key para que el
+    // resultado sea determinístico. El paquete "good" no depende de la
+    // key en ningún caso: resuelve por `known_addresses`, sembrado abajo.
+    const originalKey = process.env.GOOGLE_GEOCODING_API_KEY;
+    delete process.env.GOOGLE_GEOCODING_API_KEY;
 
-    const [good] = await db
-      .insert(packages)
-      .values({
+    try {
+      const goodAddress = `Belgrano 2210, San Martín ${runId}`;
+      const hash = await hashNormalizedAddress(goodAddress);
+      await db.insert(knownAddresses).values({
         orgId,
-        operationId,
-        internalCode: `ML-GEO-GOOD-${runId}`,
-        status: "RECIBIDO",
-        rawAddressText: goodAddress,
-      })
-      .returning();
-    const [bad] = await db
-      .insert(packages)
-      .values({
-        orgId,
-        operationId,
-        internalCode: `ML-GEO-BAD-${runId}`,
-        status: "RECIBIDO",
-        rawAddressText: `Dirección sin geocodificar ${runId}`,
-      })
-      .returning();
-    if (!good || !bad) throw new Error("no se pudieron crear los paquetes de test");
+        normalizedHash: hash,
+        rawText: goodAddress,
+        lat: -34.57,
+        lng: -58.53,
+        geocodeAccuracy: "ROOFTOP",
+      });
 
-    const summary = await geocodeOperationPackages(orgId, operationId, {
-      userId,
-      roles: ["warehouse"],
-    });
+      const [good] = await db
+        .insert(packages)
+        .values({
+          orgId,
+          operationId,
+          internalCode: `ML-GEO-GOOD-${runId}`,
+          status: "RECIBIDO",
+          rawAddressText: goodAddress,
+        })
+        .returning();
+      const [bad] = await db
+        .insert(packages)
+        .values({
+          orgId,
+          operationId,
+          internalCode: `ML-GEO-BAD-${runId}`,
+          status: "RECIBIDO",
+          rawAddressText: `Dirección sin geocodificar ${runId}`,
+        })
+        .returning();
+      if (!good || !bad) throw new Error("no se pudieron crear los paquetes de test");
 
-    expect(summary.processed).toBe(2);
-    expect(summary.geocoded).toBe(1);
-    expect(summary.failed).toBe(1);
+      const summary = await geocodeOperationPackages(orgId, operationId, {
+        userId,
+        roles: ["warehouse"],
+      });
 
-    const [goodRow] = await db.select().from(packages).where(eq(packages.id, good.id));
-    expect(goodRow?.status).toBe("GEOCODIFICADO");
-    expect(goodRow?.addressId).toBeTruthy();
+      expect(summary.processed).toBe(2);
+      expect(summary.geocoded).toBe(1);
+      expect(summary.failed).toBe(1);
 
-    const [badRow] = await db.select().from(packages).where(eq(packages.id, bad.id));
-    expect(badRow?.status).toBe("RECIBIDO"); // no entra al ruteo, §16
+      const [goodRow] = await db.select().from(packages).where(eq(packages.id, good.id));
+      expect(goodRow?.status).toBe("GEOCODIFICADO");
+      expect(goodRow?.addressId).toBeTruthy();
+
+      const [badRow] = await db.select().from(packages).where(eq(packages.id, bad.id));
+      expect(badRow?.status).toBe("RECIBIDO"); // no entra al ruteo, §16
+    } finally {
+      if (originalKey !== undefined) process.env.GOOGLE_GEOCODING_API_KEY = originalKey;
+    }
   });
 });
