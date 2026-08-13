@@ -54,6 +54,24 @@ const config: ExpoConfig = {
         recordAudioAndroid: false,
       },
     ],
+    [
+      "expo-location",
+      {
+        locationWhenInUsePermission:
+          "FYC usa tu ubicación para guiarte en las rutas y registrar las entregas.",
+        isAndroidBackgroundLocationEnabled: true,
+        isIosBackgroundLocationEnabled: true,
+      },
+    ],
+    [
+      "expo-image-picker",
+      {
+        cameraPermission:
+          "FYC usa la cámara para fotografiar la evidencia de las entregas (§9.6).",
+        photosPermission: "FYC accede a tus fotos para adjuntar evidencia.",
+        microphonePermission: false,
+      },
+    ],
   ],
   experiments: {
     typedRoutes: true,

@@ -169,6 +169,27 @@ export default function InicioScreen() {
             <Text style={{ fontFamily: fonts.sans, fontSize: 15, color: colors.muted }}>
               {localRoute.stopCount} paradas · descargada a este dispositivo
             </Text>
+            <TouchableOpacity
+              onPress={() => router.push("/paradas")}
+              style={{
+                marginTop: spacing.sm,
+                height: touch.minTarget,
+                borderRadius: radius.md,
+                backgroundColor: colors.surface3,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text
+                style={{
+                  fontFamily: fonts.sansSemibold,
+                  fontSize: 15,
+                  color: colors.text,
+                }}
+              >
+                MIS PARADAS →
+              </Text>
+            </TouchableOpacity>
           </View>
         ) : (
           <Text style={{ fontFamily: fonts.sans, fontSize: 15, color: colors.muted }}>
@@ -176,6 +197,21 @@ export default function InicioScreen() {
           </Text>
         )}
       </View>
+
+      <TouchableOpacity
+        onPress={() => router.push("/custodia")}
+        style={{
+          height: touch.primaryButton,
+          borderRadius: radius.md,
+          backgroundColor: colors.text,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Text style={{ fontFamily: fonts.sansBold, fontSize: 17, color: colors.bg }}>
+          Custodia y carga
+        </Text>
+      </TouchableOpacity>
 
       <TouchableOpacity
         onPress={() => router.push("/escanear")}

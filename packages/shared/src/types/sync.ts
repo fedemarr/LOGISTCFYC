@@ -9,7 +9,15 @@
  * incidencia, llegada a parada) suma su tipo acá — nunca inventar un
  * `operationType` en un solo lado.
  */
-export const SYNC_OPERATION_TYPES = ["GPS_PING"] as const;
+export const SYNC_OPERATION_TYPES = [
+  "GPS_PING",
+  "STOP_ARRIVED",
+  "DELIVERY_DELIVERED",
+  "DELIVERY_FAILED",
+  "STOPS_REORDERED",
+  "DELIVERY_PHOTO_ATTACH",
+  "ROUTE_FINISHED",
+] as const;
 export type SyncOperationType = (typeof SYNC_OPERATION_TYPES)[number];
 
 /** Un punto de ubicación del chofer (§10) — FASE 7 solo prueba el motor; la config real de frecuencia/precisión es FASE 11. */
@@ -22,6 +30,67 @@ export interface GpsPingPayload {
   batteryLevel?: number;
   isMoving?: boolean;
   routeId?: string;
+}
+
+/** Llegada del chofer a una parada (§9.5): transiciona el paquete EN_REPARTO → EN_DOMICILIO y marca la parada ARRIVED. */
+export interface StopArrivedPayload {
+  routeId: string;
+  stopId: string;
+  arrivedAt: string;
+}
+
+/** Evidencia mínima de una entrega (§9.6): nombre del receptor + GPS obligatorios; la foto según política del cliente. */
+export interface DeliveryDeliveredPayload {
+  routeId: string;
+  stopId: string;
+  receiverName: string;
+  receiverRelationship?: string;
+  distanceFromTargetM: number;
+  lat: number;
+  lng: number;
+  gpsAccuracyM?: number;
+  photoUrls: string[];
+  /** Clave de idempotencia de la delivery para poder adjuntarle fotos que suban después (DELIVERY_PHOTO_ATTACH). */
+  deliveryKey: string;
+  deviceId?: string;
+  deliveredAt: string;
+}
+
+/** Falla reportada por el chofer (§9.7): EN_DOMICILIO → FALLA_REPORTADA con motivo + evidencia. */
+export interface DeliveryFailedPayload {
+  routeId: string;
+  stopId: string;
+  reason: string;
+  comment?: string;
+  photoUrls?: string[];
+  lat?: number;
+  lng?: number;
+  deviceId?: string;
+  reportedAt: string;
+}
+
+/** Reorden manual de paradas (§9.8): lista ordenada de stop ids; actualiza `sequence` local y remota. */
+export interface StopsReorderedPayload {
+  routeId: string;
+  orderedStopIds: string[];
+  reorderedAt: string;
+}
+
+/** Adjunta una foto subida a Storage a una entrega que ya se sincronizó sin ella. */
+export interface DeliveryPhotoAttachPayload {
+  routeId: string;
+  stopId: string;
+  deliveryKey: string;
+  photoUrl: string;
+  attachedAt: string;
+}
+
+/** Fin de la ruta (§9.9): IN_TRANSIT → COMPLETED, vehículo AVAILABLE. */
+export interface RouteFinishedPayload {
+  routeId: string;
+  finishedAt: string;
+  finalLat?: number;
+  finalLng?: number;
 }
 
 /**

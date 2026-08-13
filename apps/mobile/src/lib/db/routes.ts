@@ -116,3 +116,53 @@ export async function getLocalRoute(
   );
   return { route, stops };
 }
+
+/** Estado local de una sola parada (pantalla de parada, §9.5). */
+export async function getLocalStop(
+  db: SQLiteDatabase,
+  stopId: string,
+): Promise<LocalStopRow | null> {
+  return db.getFirstAsync<LocalStopRow>(`SELECT * FROM local_stop WHERE id = ?`, stopId);
+}
+
+/** Marca local la parada como llegada encolada (no se vuelve a encolar STOP_ARRIVED). */
+export async function markStopArrivedSent(
+  db: SQLiteDatabase,
+  stopId: string,
+): Promise<void> {
+  await db.runAsync(`UPDATE local_stop SET arrived_sent = 1 WHERE id = ?`, stopId);
+}
+
+/** Actualiza el estado local de la parada (ARRIVED/COMPLETED/FAILED) — espejo optimista de lo que se encoló. */
+export async function setLocalStopStatus(
+  db: SQLiteDatabase,
+  stopId: string,
+  status: string,
+): Promise<void> {
+  await db.runAsync(`UPDATE local_stop SET status = ? WHERE id = ?`, status, stopId);
+}
+
+/** Reescribe la secuencia local de TODAS las paradas según la lista nueva (reorden manual §9.8). */
+export async function reorderStopsLocally(
+  db: SQLiteDatabase,
+  orderedStopIds: string[],
+): Promise<void> {
+  for (const [index, stopId] of orderedStopIds.entries()) {
+    await db.runAsync(
+      `UPDATE local_stop SET sequence = ? WHERE id = ?`,
+      index + 1,
+      stopId,
+    );
+  }
+}
+
+/** Estado local de la ruta (espejo optimista: IN_TRANSIT → COMPLETED al finalizar §9.9). */
+export async function setLocalRouteStatus(
+  db: SQLiteDatabase,
+  status: string,
+): Promise<void> {
+  await db.runAsync(
+    `UPDATE local_route SET status = ? WHERE id = (SELECT id FROM local_route LIMIT 1)`,
+    status,
+  );
+}

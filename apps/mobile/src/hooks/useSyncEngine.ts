@@ -4,6 +4,7 @@ import NetInfo from "@react-native-community/netinfo";
 import { getDeviceId } from "../lib/device";
 import { getPendingCount } from "../lib/sync/outbox";
 import { flush } from "../lib/sync/engine";
+import { flushMedia } from "../lib/media";
 import { useSyncStore } from "../lib/sync/store";
 
 const PERIODIC_FLUSH_MS = 30_000;
@@ -15,6 +16,10 @@ const PERIODIC_FLUSH_MS = 30_000;
  * cada 30s mientras la app está abierta. Serializado con un ref (no
  * estado) para que dos disparos simultáneos nunca manden el mismo lote
  * dos veces en paralelo.
+ *
+ * FASE 10 suma `flushMedia`: primero se suben las fotos pendientes a
+ * Storage y recién después se sincroniza el outbox (así la foto adjunta
+ * vía DELIVERY_PHOTO_ATTACH viaja en el mismo ciclo cuando puede).
  */
 export function useSyncEngine(): void {
   const db = useSQLiteContext();
@@ -33,6 +38,7 @@ export function useSyncEngine(): void {
     setSyncing(true);
     try {
       const deviceId = await getDeviceId();
+      await flushMedia(db);
       const result = await flush(db, deviceId);
       if (result.failed > 0) {
         setError(`${result.failed} acción(es) no se pudieron sincronizar todavía`);
