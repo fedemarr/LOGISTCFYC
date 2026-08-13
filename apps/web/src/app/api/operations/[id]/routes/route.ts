@@ -13,6 +13,7 @@ import { db } from "@/lib/db";
 import {
   containers,
   operations,
+  packages,
   routeStops,
   routes,
   users,
@@ -100,7 +101,24 @@ export async function GET(
     // rompe el listado, el mapa simplemente no dibuja el marcador.
     const depot = await resolveDepotLocation(ctx.orgId).catch(() => null);
 
-    return jsonOk({ items, depot });
+    // Paquetes GEOCODIFICADO sin ruta todavía — mismo filtro que usa
+    // `generateRouteProposal` para decidir qué entra en la próxima corrida
+    // ("agregar ruta", §8). Se muestra en el panel para que el dispatcher
+    // sepa si vale la pena tocar el botón antes de tocarlo.
+    const [freeCount] = await db
+      .select({ n: count() })
+      .from(packages)
+      .where(
+        and(
+          eq(packages.orgId, ctx.orgId),
+          eq(packages.operationId, operationId),
+          eq(packages.status, "GEOCODIFICADO"),
+          isNull(packages.routeId),
+          isNull(packages.deletedAt),
+        ),
+      );
+
+    return jsonOk({ items, depot, freePackageCount: freeCount?.n ?? 0 });
   } catch (err) {
     return jsonError(toAppError(err));
   }
@@ -108,10 +126,13 @@ export async function GET(
 
 /**
  * POST /api/operations/:id/routes — genera la propuesta de ruteo (§8,
- * etapas 1 y 2) sobre los paquetes GEOCODIFICADO de la operación. Idempotente
- * en el sentido de "no se puede correr dos veces": si ya hay rutas para
- * esta operación, hay que revisar/aprobar/borrar las existentes primero —
- * evita duplicar paquetes en dos propuestas a la vez.
+ * etapas 1 y 2) sobre los paquetes GEOCODIFICADO **sin ruta todavía** de
+ * la operación. Se puede llamar más de una vez por operación a propósito
+ * (§8: "agregar ruta") — cada corrida solo toma los paquetes libres
+ * (`routeId IS NULL`) y los vehículos AVAILABLE sin ruta activa en esta
+ * operación (`generateRouteProposal`/`fetchAvailableVehicles` filtran
+ * eso), así que nunca duplica ni re-rutea lo que ya está armado. Si no
+ * queda nada libre para rutear, tira `VALIDATION_ERROR` explícito.
  */
 export async function POST(
   request: Request,
@@ -131,22 +152,6 @@ export async function POST(
       .from(operations)
       .where(and(eq(operations.id, operationId), eq(operations.orgId, ctx.orgId)));
     if (!operation) throw Errors.notFound("operación no encontrada");
-
-    const [existing] = await db
-      .select({ id: routes.id })
-      .from(routes)
-      .where(
-        and(
-          eq(routes.orgId, ctx.orgId),
-          eq(routes.operationId, operationId),
-          isNull(routes.deletedAt),
-        ),
-      );
-    if (existing) {
-      throw Errors.conflict(
-        "esta operación ya tiene una propuesta de ruteo — ajustala o eliminá las rutas DRAFT antes de generar otra",
-      );
-    }
 
     const result = await generateRouteProposal(ctx.orgId, operationId);
     return jsonOk(result, undefined, { status: 201 });

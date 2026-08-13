@@ -331,3 +331,181 @@ describe("ruteo end-to-end (integración contra Supabase real)", () => {
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 });
+
+describe("agregar ruta (generateRouteProposal corrido más de una vez, §8)", () => {
+  const runId = randomUUID().slice(0, 8);
+  const villaBallester = { lat: -34.5489, lng: -58.5645 };
+  const sanMartin = { lat: -34.5755, lng: -58.5326 };
+
+  let orgId: string;
+  let operationId: string;
+  let driver1Id: string;
+  let driver2Id: string;
+  let vehicle1Id: string;
+
+  async function makePackage(
+    zone: string,
+    i: number,
+    center: { lat: number; lng: number },
+  ) {
+    const lat = center.lat + i * 0.001;
+    const lng = center.lng + i * 0.001;
+    const [addr] = await db
+      .insert(knownAddresses)
+      .values({
+        orgId,
+        normalizedHash: `route-add-${runId}-${zone}-${i}`,
+        rawText: `Calle Agregar ${i}, ${zone}`,
+        lat,
+        lng,
+        geocodeAccuracy: "ROOFTOP",
+      })
+      .returning();
+    if (!addr) throw new Error("no se pudo crear la dirección de test");
+    await db.insert(packages).values({
+      orgId,
+      operationId,
+      internalCode: `ML-ADD-${runId}-${zone}-${i}`,
+      trackingCode: `TC-ADD-${runId}-${zone}-${i}`,
+      status: "GEOCODIFICADO",
+      addressId: addr.id,
+    });
+  }
+
+  beforeAll(async () => {
+    process.env.DEFAULT_DEPOT_LAT = "-34.56";
+    process.env.DEFAULT_DEPOT_LNG = "-58.55";
+
+    const [org] = await db
+      .insert(organizations)
+      .values({ name: `Route Add Test Org ${runId}` })
+      .returning();
+    if (!org) throw new Error("no se pudo crear la org de test");
+    orgId = org.id;
+
+    const [op] = await db
+      .insert(operations)
+      .values({ orgId, operationDate: "2026-08-13", status: "OPEN" })
+      .returning();
+    if (!op) throw new Error("no se pudo crear la operación de test");
+    operationId = op.id;
+
+    const { data: d1, error: e1 } = await supabaseAdmin.auth.admin.createUser({
+      email: `route-add-driver1-${runId}@test`,
+      password: TEST_PASSWORD,
+      email_confirm: true,
+    });
+    if (e1 || !d1.user) throw e1 ?? new Error("sin usuario driver1");
+    driver1Id = d1.user.id;
+
+    const { data: d2, error: e2 } = await supabaseAdmin.auth.admin.createUser({
+      email: `route-add-driver2-${runId}@test`,
+      password: TEST_PASSWORD,
+      email_confirm: true,
+    });
+    if (e2 || !d2.user) throw e2 ?? new Error("sin usuario driver2");
+    driver2Id = d2.user.id;
+
+    await db.insert(users).values([
+      {
+        id: driver1Id,
+        orgId,
+        email: `route-add-driver1-${runId}@test`,
+        fullName: "Driver Add Uno",
+      },
+      {
+        id: driver2Id,
+        orgId,
+        email: `route-add-driver2-${runId}@test`,
+        fullName: "Driver Add Dos",
+      },
+    ]);
+    await db.insert(userRoles).values([
+      { userId: driver1Id, role: "driver" },
+      { userId: driver2Id, role: "driver" },
+    ]);
+
+    const [v1] = await db
+      .insert(vehicles)
+      .values({
+        orgId,
+        plate: `ADD1-${runId}`,
+        status: "AVAILABLE",
+        assignedDriverId: driver1Id,
+        capacityPackages: 10,
+      })
+      .returning();
+    if (!v1) throw new Error("no se pudo crear el vehículo 1 de test");
+    vehicle1Id = v1.id;
+
+    // Primera tanda: 3 paquetes en Villa Ballester.
+    for (let i = 0; i < 3; i++) await makePackage("VB", i, villaBallester);
+  }, 60_000);
+
+  afterAll(async () => {
+    await purgeTestEvents(orgId);
+    await db
+      .delete(routeStops)
+      .where(sql`route_id IN (SELECT id FROM routes WHERE org_id = ${orgId})`);
+    await db.delete(packages).where(eq(packages.orgId, orgId));
+    await db.delete(routes).where(eq(routes.orgId, orgId));
+    await db.delete(knownAddresses).where(eq(knownAddresses.orgId, orgId));
+    await db.delete(vehicles).where(eq(vehicles.orgId, orgId));
+    await db.delete(operations).where(eq(operations.orgId, orgId));
+    await db.delete(userRoles).where(sql`user_id IN (${driver1Id}, ${driver2Id})`);
+    await db.delete(users).where(eq(users.orgId, orgId));
+    await db.delete(organizations).where(eq(organizations.id, orgId));
+    await supabaseAdmin.auth.admin.deleteUser(driver1Id).catch(() => {});
+    await supabaseAdmin.auth.admin.deleteUser(driver2Id).catch(() => {});
+  }, 30_000);
+
+  it("primera corrida rutea los 3 paquetes con RUTA 001 usando el único vehículo libre", async () => {
+    const result = await generateRouteProposal(orgId, operationId);
+    expect(result.routes).toHaveLength(1);
+    expect(result.routes[0]?.routeNumber).toBe(1);
+    expect(result.routes[0]?.packageCount).toBe(3);
+  }, 30_000);
+
+  it("sin vehículo libre nuevo, correrla de nuevo con 0 paquetes libres falla VALIDATION_ERROR", async () => {
+    // Los 3 paquetes ya están en RUTA 001 (routeId seteado) — no queda
+    // nada libre para rutear todavía.
+    await expect(generateRouteProposal(orgId, operationId)).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+    });
+  });
+
+  it("agregar ruta: paquetes nuevos + segundo vehículo generan RUTA 002 sin tocar RUTA 001", async () => {
+    for (let i = 0; i < 2; i++) await makePackage("SM", i, sanMartin);
+    const [v2] = await db
+      .insert(vehicles)
+      .values({
+        orgId,
+        plate: `ADD2-${runId}`,
+        status: "AVAILABLE",
+        assignedDriverId: driver2Id,
+        capacityPackages: 10,
+      })
+      .returning();
+    if (!v2) throw new Error("no se pudo crear el vehículo 2 de test");
+
+    const result = await generateRouteProposal(orgId, operationId);
+    expect(result.routes).toHaveLength(1);
+    expect(result.routes[0]?.routeNumber).toBe(2); // sigue la numeración, no reinicia en 1
+    expect(result.routes[0]?.packageCount).toBe(2);
+
+    const dbRoutes = await db
+      .select()
+      .from(routes)
+      .where(eq(routes.orgId, orgId))
+      .orderBy(routes.routeNumber);
+    expect(dbRoutes).toHaveLength(2);
+    expect(dbRoutes[0]?.vehicleId).toBe(vehicle1Id); // RUTA 001 sin cambios
+    expect(dbRoutes[1]?.vehicleId).toBe(v2.id); // RUTA 002 usa el vehículo nuevo, no el ocupado
+
+    const stopsRoute1 = await db
+      .select()
+      .from(routeStops)
+      .where(eq(routeStops.routeId, dbRoutes[0]!.id));
+    expect(stopsRoute1).toHaveLength(3); // intacta
+  }, 30_000);
+});

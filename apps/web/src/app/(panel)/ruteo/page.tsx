@@ -21,6 +21,7 @@ import { RouteMap } from "./route-map";
 interface RoutesResponse {
   items: RouteItem[];
   depot: { lat: number; lng: number } | null;
+  freePackageCount: number;
 }
 
 /**
@@ -41,6 +42,7 @@ export default function RuteoPage() {
   const [hoveredRouteId, setHoveredRouteId] = React.useState<string | null>(null);
   const [generating, setGenerating] = React.useState(false);
   const [containers, setContainers] = React.useState<ContainerItem[]>([]);
+  const [freePackageCount, setFreePackageCount] = React.useState(0);
 
   React.useEffect(() => {
     void (async () => {
@@ -83,6 +85,7 @@ export default function RuteoPage() {
       );
       setRouteList(result.items);
       setDepot(result.depot);
+      setFreePackageCount(result.freePackageCount);
       const pairs = await Promise.all(
         result.items.map(async (r) => {
           try {
@@ -169,34 +172,42 @@ export default function RuteoPage() {
         />
       </div>
 
-      {(!routeList || routeList.length === 0) && (
-        <div className="px-4 pt-4 sm:px-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Generar propuesta de rutas</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <p className="text-text-muted text-sm">
-                Cluster geográfico capacitado + secuenciación por calle real sobre los
-                paquetes GEOCODIFICADO de esta operación (§8). Necesita al menos un
-                vehículo AVAILABLE con chofer asignado.
-              </p>
-              <Button
-                onClick={() => void handleGenerate()}
-                disabled={generating}
-                className="w-fit"
-              >
-                {generating ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <RouteIcon className="size-4" />
-                )}
-                Generar propuesta
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+      {(() => {
+        const hasRoutes = !!routeList && routeList.length > 0;
+        return (
+          <div className="px-4 pt-4 sm:px-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  {hasRoutes ? "Agregar ruta" : "Generar propuesta de rutas"}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                <p className="text-text-muted text-sm">
+                  {hasRoutes
+                    ? "Arma una ruta más con los paquetes que quedaron sin asignar (llegaron o se geocodificaron después de la primera tanda) — no toca las rutas que ya existen."
+                    : "Cluster geográfico capacitado + secuenciación por calle real sobre los paquetes GEOCODIFICADO de esta operación (§8). Necesita al menos un vehículo AVAILABLE con chofer asignado."}
+                </p>
+                <p className="font-data text-text-muted text-xs">
+                  {freePackageCount} paquete(s) geocodificado(s) sin ruta todavía
+                </p>
+                <Button
+                  onClick={() => void handleGenerate()}
+                  disabled={generating || freePackageCount === 0}
+                  className="w-fit"
+                >
+                  {generating ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <RouteIcon className="size-4" />
+                  )}
+                  {hasRoutes ? "Agregar ruta" : "Generar propuesta"}
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        );
+      })()}
 
       {routeList && routeList.length > 0 && (
         <div className="mt-4 grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] lg:grid-cols-[320px_1fr]">

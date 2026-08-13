@@ -8,7 +8,7 @@
  * Etapa 3 (ajuste humano) es lo que expone `reassignPackageRoute()` y
  * `approveRoute()` — el algoritmo PROPONE, el dispatcher DISPONE (§8).
  */
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { clusterPackages, sequenceRoute, type LatLng } from "@fyc/geo";
 import type { Role } from "@fyc/shared";
 import { Errors } from "@/lib/api/errors";
@@ -112,6 +112,7 @@ async function fetchGeocodedPackages(
         eq(packages.orgId, orgId),
         eq(packages.operationId, operationId),
         eq(packages.status, "GEOCODIFICADO"),
+        isNull(packages.routeId),
         isNull(packages.deletedAt),
       ),
     );
@@ -125,7 +126,35 @@ interface AvailableVehicle {
   capacity: number;
 }
 
-async function fetchAvailableVehicles(orgId: string): Promise<AvailableVehicle[]> {
+/**
+ * Vehículos AVAILABLE con chofer, EXCLUYENDO los que ya están en una ruta
+ * activa de ESTA operación — necesario desde que `generateRouteProposal`
+ * se puede correr más de una vez por operación (§8: "agregar ruta" sobre
+ * paquetes que llegaron después de la primera tanda). Sin este filtro, un
+ * mismo chofer/vehículo podría terminar con dos rutas simultáneas el
+ * mismo día. `vehicles.status` no cambia a `IN_ROUTE` hasta que el chofer
+ * arranca de verdad (§9.4) — DRAFT/APPROVED/ASSIGNED todavía lo muestran
+ * como AVAILABLE, por eso hace falta este chequeo aparte.
+ */
+async function fetchAvailableVehicles(
+  orgId: string,
+  operationId: string,
+): Promise<AvailableVehicle[]> {
+  const busy = await db
+    .select({ vehicleId: routes.vehicleId })
+    .from(routes)
+    .where(
+      and(
+        eq(routes.orgId, orgId),
+        eq(routes.operationId, operationId),
+        isNull(routes.deletedAt),
+        ne(routes.status, "CANCELLED"),
+      ),
+    );
+  const busyVehicleIds = new Set(
+    busy.map((r) => r.vehicleId).filter((id): id is string => id != null),
+  );
+
   const rows = await db
     .select({
       id: vehicles.id,
@@ -142,6 +171,7 @@ async function fetchAvailableVehicles(orgId: string): Promise<AvailableVehicle[]
     );
 
   return rows
+    .filter((r) => !busyVehicleIds.has(r.id))
     .filter(
       (r): r is typeof r & { assignedDriverId: string } => r.assignedDriverId != null,
     )
@@ -195,17 +225,22 @@ export async function generateRouteProposal(
   if (!operation) throw Errors.notFound("operación no encontrada");
 
   const depot = await resolveDepotLocation(orgId);
+  // Solo paquetes SIN ruta todavía (`fetchGeocodedPackages` filtra por
+  // `routeId IS NULL`) — esto es lo que hace que correr esta función de
+  // nuevo sobre una operación que YA tiene rutas agregue una ruta más con
+  // los paquetes que llegaron/geocodificaron después, en vez de re-rutear
+  // todo desde cero (§8: "agregar ruta").
   const geocoded = await fetchGeocodedPackages(orgId, operationId);
   if (geocoded.length === 0) {
     throw Errors.validation(
-      "no hay paquetes GEOCODIFICADO en esta operación — corré el geocoding de /deposito primero",
+      "no hay paquetes GEOCODIFICADO sin asignar a una ruta en esta operación — corré el geocoding de /deposito primero, o ya están todos ruteados",
     );
   }
 
-  const vehicleList = await fetchAvailableVehicles(orgId);
+  const vehicleList = await fetchAvailableVehicles(orgId, operationId);
   if (vehicleList.length === 0) {
     throw Errors.validation(
-      "no hay vehículos AVAILABLE con chofer asignado — asigná al menos uno antes de generar rutas",
+      "no hay vehículos AVAILABLE con chofer asignado y sin ruta activa en esta operación",
     );
   }
 
@@ -221,7 +256,15 @@ export async function generateRouteProposal(
     unassignedForLackOfCapacity: 0,
   };
 
-  let routeNumber = 1;
+  // Sigue la numeración existente en vez de reiniciar en 1 — dos rutas
+  // "RUTA 001" en la misma operación sería confuso en el panel/etiquetas.
+  const [maxRoute] = await db
+    .select({ n: routes.routeNumber })
+    .from(routes)
+    .where(and(eq(routes.orgId, orgId), eq(routes.operationId, operationId)))
+    .orderBy(desc(routes.routeNumber))
+    .limit(1);
+  let routeNumber = (maxRoute?.n ?? 0) + 1;
   for (let i = 0; i < clusterResult.clusters.length; i++) {
     const cluster = clusterResult.clusters[i];
     if (!cluster || cluster.pointIds.length === 0) continue;
