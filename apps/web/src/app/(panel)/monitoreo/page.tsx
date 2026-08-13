@@ -41,7 +41,6 @@ export default function MonitoreoPage() {
   const [selectedRouteId, setSelectedRouteId] = React.useState<string | null>(null);
 
   const load = React.useCallback(async (silent = false) => {
-    if (!silent) setStatus("loading");
     try {
       const data = await api.get<{ items: LiveRouteItem[] }>("/api/operations/live");
       setItems(data.items);
@@ -52,9 +51,16 @@ export default function MonitoreoPage() {
   }, []);
 
   React.useEffect(() => {
-    void load();
+    let cancelled = false;
+    void (async () => {
+      await load();
+      if (cancelled) return;
+    })();
     const poll = setInterval(() => void load(true), POLL_MS);
-    return () => clearInterval(poll);
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+    };
   }, [load]);
 
   if (status === "loading") {

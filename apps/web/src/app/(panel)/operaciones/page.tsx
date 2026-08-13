@@ -36,7 +36,6 @@ export default function OperacionesPage() {
   const [inbox, setInbox] = React.useState<DispatchInbox | null>(null);
 
   const load = React.useCallback(async (silent = false) => {
-    if (!silent) setStatus("loading");
     try {
       const data = await api.get<DispatchInbox>("/api/operations/inbox");
       setInbox(data);
@@ -47,9 +46,16 @@ export default function OperacionesPage() {
   }, []);
 
   React.useEffect(() => {
-    void load();
+    let cancelled = false;
+    void (async () => {
+      await load();
+      if (cancelled) return;
+    })();
     const poll = setInterval(() => void load(true), POLL_MS);
-    return () => clearInterval(poll);
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+    };
   }, [load]);
 
   if (status === "loading") {
