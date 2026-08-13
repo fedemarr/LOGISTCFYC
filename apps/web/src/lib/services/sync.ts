@@ -7,10 +7,10 @@
  * seguro"), y solo después ejecuta el efecto de negocio correspondiente
  * al `operationType`.
  *
- * FASE 7 (base del motor) implementa un solo `operationType` (`GPS_PING`)
- * — alcanza para probar el círculo completo del patrón (encolar → mandar
- * → dedupe → aplicar → marcar) sin depender de reglas de negocio de fases
- * que todavía no existen (entrega en FASE 10, incidencias en FASE 9/12).
+ * FASE 7 (base del motor) implementó el primer `operationType` (`GPS_PING`).
+ * FASE 10 suma las acciones de la calle: `STOP_ARRIVED`, `DELIVERY_DELIVERED`,
+ * `DELIVERY_FAILED`, `STOPS_REORDERED`, `DELIVERY_PHOTO_ATTACH` y
+ * `ROUTE_FINISHED` (sus efectos de negocio viven en `delivery.ts`).
  * Agregar un tipo nuevo es: sumarlo a `SYNC_OPERATION_TYPES`
  * (`@fyc/shared`) + un `case` acá — nunca un `if` disperso.
  */
@@ -20,6 +20,14 @@ import type { SyncAction, SyncActionResult } from "@fyc/shared";
 import { db } from "@/lib/db";
 import { driverLocations, syncQueue } from "@/lib/db/schema";
 import type { AuthContext } from "@/lib/api/auth";
+import {
+  arriveAtStop,
+  attachDeliveryPhoto,
+  finishRoute,
+  recordDelivery,
+  reorderStops,
+  reportDeliveryFailed,
+} from "./delivery";
 
 const gpsPingSchema = z.object({
   lat: z.number().min(-90).max(90),
@@ -30,6 +38,77 @@ const gpsPingSchema = z.object({
   batteryLevel: z.number().min(0).max(1).optional(),
   isMoving: z.boolean().optional(),
   routeId: z.string().uuid().optional(),
+});
+
+const uuidSchema = z.string().uuid();
+const isoDateSchema = z.string().datetime();
+const coordSchema = z.number().min(-90).max(90);
+const coordLngSchema = z.number().min(-180).max(180);
+
+const stopArrivedSchema = z.object({
+  routeId: uuidSchema,
+  stopId: uuidSchema,
+  arrivedAt: isoDateSchema,
+});
+
+const deliveryDeliveredSchema = z.object({
+  routeId: uuidSchema,
+  stopId: uuidSchema,
+  receiverName: z.string().trim().min(1, "el nombre del receptor es obligatorio (§9.6)"),
+  receiverRelationship: z.string().trim().optional(),
+  distanceFromTargetM: z.number().min(0),
+  lat: coordSchema,
+  lng: coordLngSchema,
+  gpsAccuracyM: z.number().min(0).optional(),
+  photoUrls: z.array(z.string().min(1)).default([]),
+  deliveryKey: z.string().uuid(),
+  deviceId: z.string().min(1).max(200).optional(),
+  deliveredAt: isoDateSchema,
+});
+
+const deliveryFailedSchema = z.object({
+  routeId: uuidSchema,
+  stopId: uuidSchema,
+  reason: z.enum([
+    "NO_ONE_HOME",
+    "NO_ANSWER",
+    "WRONG_ADDRESS",
+    "NONEXISTENT_ADDRESS",
+    "REFUSED",
+    "NO_ACCESS",
+    "UNSAFE_AREA",
+    "VEHICLE_ISSUE",
+    "DAMAGED",
+    "MISSING_BULK",
+    "OTHER",
+  ]),
+  comment: z.string().trim().optional(),
+  photoUrls: z.array(z.string().min(1)).optional(),
+  lat: coordSchema.optional(),
+  lng: coordLngSchema.optional(),
+  deviceId: z.string().min(1).max(200).optional(),
+  reportedAt: isoDateSchema,
+});
+
+const stopsReorderedSchema = z.object({
+  routeId: uuidSchema,
+  orderedStopIds: z.array(uuidSchema).min(1),
+  reorderedAt: isoDateSchema,
+});
+
+const deliveryPhotoAttachSchema = z.object({
+  routeId: uuidSchema,
+  stopId: uuidSchema,
+  deliveryKey: z.string().uuid(),
+  photoUrl: z.string().min(1),
+  attachedAt: isoDateSchema,
+});
+
+const routeFinishedSchema = z.object({
+  routeId: uuidSchema,
+  finishedAt: isoDateSchema,
+  finalLat: coordSchema.optional(),
+  finalLng: coordLngSchema.optional(),
 });
 
 async function applyGpsPing(
@@ -58,6 +137,40 @@ async function applyAction(ctx: AuthContext, action: SyncAction): Promise<void> 
   switch (action.operationType) {
     case "GPS_PING":
       await applyGpsPing(ctx, action.payload, action.clientTimestamp);
+      return;
+    case "STOP_ARRIVED":
+      await arriveAtStop(ctx.orgId, ctx.userId, stopArrivedSchema.parse(action.payload));
+      return;
+    case "DELIVERY_DELIVERED":
+      await recordDelivery(
+        ctx.orgId,
+        ctx.userId,
+        deliveryDeliveredSchema.parse(action.payload),
+      );
+      return;
+    case "DELIVERY_FAILED":
+      await reportDeliveryFailed(
+        ctx.orgId,
+        ctx.userId,
+        deliveryFailedSchema.parse(action.payload),
+      );
+      return;
+    case "STOPS_REORDERED":
+      await reorderStops(
+        ctx.orgId,
+        ctx.userId,
+        stopsReorderedSchema.parse(action.payload),
+      );
+      return;
+    case "DELIVERY_PHOTO_ATTACH":
+      await attachDeliveryPhoto(
+        ctx.orgId,
+        ctx.userId,
+        deliveryPhotoAttachSchema.parse(action.payload),
+      );
+      return;
+    case "ROUTE_FINISHED":
+      await finishRoute(ctx.orgId, ctx.userId, routeFinishedSchema.parse(action.payload));
       return;
     default: {
       const exhaustive: never = action.operationType;

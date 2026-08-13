@@ -5,15 +5,13 @@ import { knownAddresses, packages, routes, routeStops } from "@/lib/db/schema";
 /**
  * Estados de ruta que cuentan como "la mía activa hoy" — no
  * DRAFT/PROPOSED (todavía no es del chofer) ni COMPLETED/CANCELLED (ya
- * terminó). Incluye `APPROVED`: §9.3 dice "chofer abre la app → ve su
- * ruta asignada" ANTES de escanear el contenedor — la transición formal
- * APPROVED→ASSIGNED todavía no existe en el código (es la toma de
- * custodia de FASE 9, que hoy no está implementada), así que hasta que
- * esa fase exista, `APPROVED` es lo más cerca que hay de "asignada al
- * chofer" y es lo que la app tiene que poder descargar la noche/mañana
- * antes de la custodia (ver docs/DECISIONES.md).
+ * terminó). `APPROVED` sigue acá a propósito AUNQUE FASE 9 ya implementó
+ * la custodia (APPROVED→ASSIGNED): §9.3 dice "chofer abre la app → ve su
+ * ruta asignada" ANTES de escanear el contenedor — la app tiene que poder
+ * descargar la ruta la noche/mañana previa a la custodia, y ese flujo
+ * sigue siendo APPROVED (ver docs/DECISIONES.md FASE 9).
  */
-const ACTIVE_ROUTE_STATUSES = [
+export const ACTIVE_ROUTE_STATUSES = [
   "APPROVED",
   "ASSIGNED",
   "LOADING",

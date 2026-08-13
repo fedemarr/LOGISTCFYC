@@ -304,3 +304,90 @@ export interface ApproveRouteResponse {
   status: "APPROVED";
   packageCount: number;
 }
+
+// ── Monitoreo y bandeja (FASE 11) ───────────────────────────────────────
+
+export type LiveAlertType = "GPS_SILENCE" | "STOPPED" | "BEHIND_SCHEDULE";
+
+export interface LiveAlert {
+  type: LiveAlertType;
+  message: string;
+  sinceMin: number;
+}
+
+export interface LiveRouteItem {
+  routeId: string;
+  routeNumber: number;
+  startedAt: string | null;
+  driverId: string;
+  driverName: string;
+  plate: string | null;
+  lat: number | null;
+  lng: number | null;
+  accuracyM: number | null;
+  isMoving: boolean | null;
+  speedMps: number | null;
+  batteryLevel: number | null;
+  lastPingMinAgo: number | null;
+  receivedAt: string | null;
+  alerts: LiveAlert[];
+}
+
+export interface TrackingPoint {
+  id: string;
+  lat: number;
+  lng: number;
+  accuracyM: number | null;
+  speedMps: number | null;
+  batteryLevel: number | null;
+  isMoving: boolean | null;
+  recordedAt: string;
+  receivedAt: string;
+}
+
+export interface InboxIncident {
+  incidentId: string;
+  reason: string;
+  description: string | null;
+  photoUrls: string[];
+  lat: number | null;
+  lng: number | null;
+  createdAt: string;
+  slaOverdueS: number | null;
+  packageId: string | null;
+  internalCode: string | null;
+  routeId: string | null;
+  routeNumber: number | null;
+  driverName: string | null;
+}
+
+export interface InboxReviewDelivery {
+  deliveryId: string;
+  packageId: string | null;
+  internalCode: string | null;
+  receiverName: string | null;
+  distanceFromTargetM: number | null;
+  lat: number | null;
+  lng: number | null;
+  deliveredAt: string;
+  driverName: string | null;
+  routeNumber: number | null;
+}
+
+export interface InboxCustodyDiscrepancy {
+  custodyId: string;
+  routeId: string;
+  routeNumber: number | null;
+  expectedCount: number;
+  countedCount: number | null;
+  method: string;
+  discrepancyNotes: string | null;
+  createdAt: string;
+  driverName: string | null;
+}
+
+export interface DispatchInbox {
+  incidents: InboxIncident[];
+  reviewDeliveries: InboxReviewDelivery[];
+  custodyDiscrepancies: InboxCustodyDiscrepancy[];
+}

@@ -158,16 +158,24 @@ async function main(): Promise<void> {
   // ── 4. Contenedores ──────────────────────────────────────────────────
   const containerTypes = ["BAG", "BAG", "CART", "CAGE", "SHELF"] as const;
   for (const [i, type] of containerTypes.entries()) {
+    const code = `CONT-${String(i + 1).padStart(3, "0")}`;
+    // qr_payload = lo que se imprime como QR en el contenedor físico (§9.3:
+    // el chofer escanea el QR del contenedor al tomar custodia). Se setea
+    // en el update para alcanzar contenedores ya creados por corridas previas.
     await db
       .insert(containers)
       .values({
         orgId: org.id,
-        code: `CONT-${String(i + 1).padStart(3, "0")}`,
+        code,
+        qrPayload: `FYC-${code}`,
         type,
       })
-      .onConflictDoNothing({ target: containers.code });
+      .onConflictDoUpdate({
+        target: containers.code,
+        set: { qrPayload: `FYC-${code}` },
+      });
   }
-  console.log("✓ 5 contenedores");
+  console.log("✓ 5 contenedores (con QR de custodia FYC-CONT-00X)");
 
   // ── 5. Cliente (proveedor de paquetes) ──────────────────────────────
   const existingClient = await db.query.clients.findFirst({

@@ -6,10 +6,11 @@ import {
   type TransitionRequest,
   type TransitionResult,
 } from "@fyc/state-machine";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Errors } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { packages } from "@/lib/db/schema";
+import { logDomainEvent } from "./events";
 
 /**
  * Conecta la máquina de estados (package agnóstico de base de datos) a
@@ -71,29 +72,23 @@ async function logPackageEvent(params: {
   } = params;
   const gps = gpsFromMetadata(metadata);
 
-  const result = await tx.execute(sql`
-    select public.log_event(
-      ${orgId}::uuid,
-      'PACKAGE'::event_entity_type,
-      ${packageId}::uuid,
-      ${PACKAGE_STATUS_EVENT_TYPE},
-      ${actorId}::uuid,
-      ${actorRole},
-      ${fromStatus},
-      ${toStatus},
-      ${gps.lat},
-      ${gps.lng},
-      ${JSON.stringify(metadata)}::jsonb,
-      NULL,
-      ${occurredAt}
-    ) as id
-  `);
-
-  const row = result.rows[0] as { id: string } | undefined;
-  if (!row) {
-    throw Errors.internal("log_event no devolvió el id del evento");
-  }
-  return row.id;
+  return logDomainEvent(
+    {
+      orgId,
+      entityType: "PACKAGE",
+      entityId: packageId,
+      eventType: PACKAGE_STATUS_EVENT_TYPE,
+      actorId,
+      actorRole,
+      fromStatus,
+      toStatus,
+      lat: gps.lat,
+      lng: gps.lng,
+      metadata,
+      occurredAt,
+    },
+    tx,
+  );
 }
 
 /** Ejecuta una transición de paquete completa, atómica y auditada. */

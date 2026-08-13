@@ -28,6 +28,8 @@ const PAGES = [
   "/paquetes",
   "/deposito",
   "/ruteo",
+  "/operaciones",
+  "/monitoreo",
   "/usuarios",
   "/vehiculos",
   "/clientes",

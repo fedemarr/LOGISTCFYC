@@ -4,14 +4,20 @@ import {
   Errors,
   jsonError,
   jsonOk,
+  parseBody,
   parseParams,
   requireRole,
   toAppError,
 } from "@/lib/api";
 import { db } from "@/lib/db";
 import { knownAddresses, packages, routes, routeStops, users } from "@/lib/db/schema";
+import { assignRouteContainer } from "@/lib/services/custody";
 
 const paramsSchema = z.object({ id: z.string().uuid("id de ruta inválido") });
+
+const patchBodySchema = z.object({
+  containerId: z.string().uuid("id de contenedor inválido").nullable().optional(),
+});
 
 /** GET /api/routes/:id — detalle de una ruta con sus paradas en orden (§7: `route_stops.sequence`). */
 export async function GET(
@@ -71,6 +77,33 @@ export async function GET(
       .orderBy(asc(routeStops.sequence));
 
     return jsonOk({ ...route, driverName, stops });
+  } catch (err) {
+    return jsonError(toAppError(err));
+  }
+}
+
+/**
+ * PATCH /api/routes/:id — asigna (o desasigna) el contenedor físico de la
+ * ruta (§9.2/§9.3). Solo antes de la custodia (DRAFT/PROPOSED/APPROVED) y
+ * por admin/dispatcher/warehouse — una vez que el chofer tomó custodia, el
+ * contenedor no se puede cambiar.
+ */
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<Response> {
+  try {
+    const ctx = await requireRole(request, ["admin", "dispatcher", "warehouse"]);
+    const { id: routeId } = await parseParams(paramsSchema, params);
+    const body = await parseBody(patchBodySchema, request);
+
+    const result = await assignRouteContainer(
+      ctx.orgId,
+      routeId,
+      ctx,
+      body.containerId ?? null,
+    );
+    return jsonOk(result);
   } catch (err) {
     return jsonError(toAppError(err));
   }
