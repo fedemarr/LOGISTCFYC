@@ -1,10 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2, PackageSearch, ScanLine, Upload } from "lucide-react";
+import { CheckCircle2, IdCard, PackageSearch, ScanLine, Upload } from "lucide-react";
 import {
   api,
   type CloseOperationResponse,
+  type DriverCheckInResult,
   type GeocodeSummary,
   type ImportSummary,
   type OperationItem,
@@ -127,6 +128,8 @@ export default function DepositoPage() {
           warn={(pending?.length ?? 0) > 0}
         />
       </div>
+
+      <DriverCheckInCard />
 
       {operation.status === "OPEN" && (
         <>
@@ -379,6 +382,79 @@ function ScanCard({
             )}
             {lastResult.wrongClient && <Badge variant="danger">Cliente equivocado</Badge>}
             <span className="text-text-muted">{lastResult.internalCode}</span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Control de salida del chofer (pedido de Fede, no del documento madre):
+ * depósito escanea el QR personal del chofer ("Mi identificación" en la
+ * app) antes de que salga con la ruta cargada — registro aparte de la
+ * custodia de bultos (§9.3), ver `driver-checkin.ts`.
+ */
+function DriverCheckInCard() {
+  const { toast } = useToast();
+  const [code, setCode] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [lastResult, setLastResult] = React.useState<DriverCheckInResult | null>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  async function handleScan(e: React.FormEvent) {
+    e.preventDefault();
+    if (!code.trim()) return;
+    setBusy(true);
+    try {
+      const result = await api.post<DriverCheckInResult>("/api/driver/checkin", {
+        code: code.trim(),
+      });
+      setLastResult(result);
+      toast({ title: `${result.driverName} — salida registrada`, variant: "success" });
+    } catch (err) {
+      setLastResult(null);
+      toast({
+        title: err instanceof Error ? err.message : "No se pudo registrar la salida",
+        variant: "error",
+      });
+    } finally {
+      setCode("");
+      setBusy(false);
+      inputRef.current?.focus();
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <IdCard className="size-4" /> Control de salida del chofer
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <p className="text-text-muted text-sm">
+          Escaneá el QR de &ldquo;Mi identificación&rdquo; del chofer antes de que salga
+          con la ruta cargada.
+        </p>
+        <form onSubmit={(e) => void handleScan(e)} className="flex gap-2">
+          <Input
+            ref={inputRef}
+            placeholder="QR del chofer"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            disabled={busy}
+          />
+          <Button type="submit" disabled={busy}>
+            Escanear
+          </Button>
+        </form>
+        {lastResult && (
+          <div className="bg-muted flex items-center gap-2 rounded-md p-3 text-sm">
+            <Badge variant="success">
+              <CheckCircle2 className="size-3" /> Salida registrada
+            </Badge>
+            <span className="text-text-muted">{lastResult.driverName}</span>
           </div>
         )}
       </CardContent>

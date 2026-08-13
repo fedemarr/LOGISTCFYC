@@ -6,3 +6,4 @@ export * from "./types/sync";
 export * from "./lib/barcode";
 export * from "./lib/normalize-address";
 export * from "./lib/address-ocr-parser";
+export * from "./lib/driver-id";

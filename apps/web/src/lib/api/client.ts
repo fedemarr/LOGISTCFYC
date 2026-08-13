@@ -209,6 +209,12 @@ export interface PendingPackageItem {
   createdAt: string;
 }
 
+export interface DriverCheckInResult {
+  driverId: string;
+  driverName: string;
+  occurredAt: string;
+}
+
 export interface ImportSummary {
   created: number;
   skipped: number;

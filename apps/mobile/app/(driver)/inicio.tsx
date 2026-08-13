@@ -199,6 +199,25 @@ export default function InicioScreen() {
       </View>
 
       <TouchableOpacity
+        onPress={() => router.push("/identificacion")}
+        style={{
+          height: touch.primaryButton,
+          borderRadius: radius.md,
+          backgroundColor: colors.surface2,
+          borderWidth: 1,
+          borderColor: colors.border,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Text
+          style={{ fontFamily: fonts.sansSemibold, fontSize: 17, color: colors.text }}
+        >
+          Mi identificación (QR de salida)
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
         onPress={() => router.push("/custodia")}
         style={{
           height: touch.primaryButton,
