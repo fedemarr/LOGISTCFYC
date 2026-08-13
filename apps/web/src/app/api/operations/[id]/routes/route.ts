@@ -10,7 +10,14 @@ import {
   toAppError,
 } from "@/lib/api";
 import { db } from "@/lib/db";
-import { operations, routeStops, routes, users, vehicles } from "@/lib/db/schema";
+import {
+  containers,
+  operations,
+  routeStops,
+  routes,
+  users,
+  vehicles,
+} from "@/lib/db/schema";
 import {
   generateRouteProposal,
   resolveDepotLocation,
@@ -71,6 +78,12 @@ export async function GET(
               .from(vehicles)
               .where(eq(vehicles.id, route.vehicleId))
           : [];
+        const [container] = route.containerId
+          ? await db
+              .select({ code: containers.code })
+              .from(containers)
+              .where(eq(containers.id, route.containerId))
+          : [];
 
         return {
           ...route,
@@ -78,6 +91,7 @@ export async function GET(
           driverName: driver?.fullName ?? null,
           vehiclePlate: vehicle?.plate ?? null,
           capacityPackages: vehicle?.capacityPackages ?? null,
+          containerCode: container?.code ?? null,
         };
       }),
     );

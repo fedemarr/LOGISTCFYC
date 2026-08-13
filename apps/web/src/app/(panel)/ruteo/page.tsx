@@ -4,6 +4,7 @@ import * as React from "react";
 import { Loader2, Route as RouteIcon } from "lucide-react";
 import {
   api,
+  type ContainerItem,
   type OperationItem,
   type Page,
   type RouteDetail,
@@ -39,6 +40,18 @@ export default function RuteoPage() {
   const [details, setDetails] = React.useState<Record<string, RouteDetail>>({});
   const [hoveredRouteId, setHoveredRouteId] = React.useState<string | null>(null);
   const [generating, setGenerating] = React.useState(false);
+  const [containers, setContainers] = React.useState<ContainerItem[]>([]);
+
+  React.useEffect(() => {
+    void (async () => {
+      try {
+        const page = await api.get<Page<ContainerItem>>("/api/containers?pageSize=100");
+        setContainers(page.items);
+      } catch {
+        // no bloquea el resto de la pantalla — sin esto solo no se puede asignar contenedor
+      }
+    })();
+  }, []);
 
   const loadOperation = React.useCallback(async () => {
     try {
@@ -193,6 +206,7 @@ export default function RuteoPage() {
                 key={route.id}
                 route={route}
                 allRoutes={routeList}
+                containers={containers}
                 detail={details[route.id]}
                 hovered={hoveredRouteId === route.id}
                 onHoverChange={setHoveredRouteId}

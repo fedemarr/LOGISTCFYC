@@ -2,7 +2,12 @@
 
 import * as React from "react";
 import { CheckCircle2, Loader2, Printer } from "lucide-react";
-import { api, type RouteDetail, type RouteItem } from "@/lib/api/client";
+import {
+  api,
+  type ContainerItem,
+  type RouteDetail,
+  type RouteItem,
+} from "@/lib/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -44,6 +49,7 @@ function capacityColor(pct: number): string {
 export function RouteCard({
   route,
   allRoutes,
+  containers,
   detail,
   hovered,
   onHoverChange,
@@ -51,6 +57,7 @@ export function RouteCard({
 }: {
   route: RouteItem;
   allRoutes: RouteItem[];
+  containers: ContainerItem[];
   detail: RouteDetail | undefined;
   hovered: boolean;
   onHoverChange: (routeId: string | null) => void;
@@ -59,10 +66,37 @@ export function RouteCard({
   const { toast } = useToast();
   const [busy, setBusy] = React.useState(false);
   const canAdjust = route.status === "DRAFT" || route.status === "PROPOSED";
+  // El contenedor se puede asignar/cambiar hasta APPROVED (§9.2/§9.3) —
+  // una vez que el chofer arrancó custodia (ASSIGNED en adelante) el
+  // contenedor físico ya está en la calle, `assignRouteContainer` lo
+  // rechaza server-side igual, esto solo evita mostrar el control cuando
+  // ya no sirve para nada.
+  const canAssignContainer =
+    route.status === "DRAFT" ||
+    route.status === "PROPOSED" ||
+    route.status === "APPROVED";
   const color = route.colorHex ?? "var(--muted)";
   const pct = route.capacityPackages
     ? Math.round((route.stopCount / route.capacityPackages) * 100)
     : null;
+
+  async function handleAssignContainer(containerId: string) {
+    setBusy(true);
+    try {
+      await api.patch(`/api/routes/${route.id}`, {
+        containerId: containerId === "" ? null : containerId,
+      });
+      toast({ title: "Contenedor asignado", variant: "success" });
+      onChanged();
+    } catch (err) {
+      toast({
+        title: err instanceof Error ? err.message : "No se pudo asignar el contenedor",
+        variant: "error",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleReassign(packageId: string, toRouteId: string) {
     if (toRouteId === route.id) return;
@@ -135,6 +169,32 @@ export function RouteCard({
           </span>
         )}
       </div>
+
+      {canAssignContainer ? (
+        <div className="mb-2.5 flex items-center gap-2 text-sm">
+          <span className="text-text-muted shrink-0">Contenedor</span>
+          <Select
+            aria-label="Asignar contenedor"
+            className="w-full"
+            value={route.containerId ?? ""}
+            disabled={busy}
+            onChange={(e) => void handleAssignContainer(e.target.value)}
+          >
+            <option value="">Sin asignar</option>
+            {containers.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.code}
+              </option>
+            ))}
+          </Select>
+        </div>
+      ) : (
+        route.containerCode && (
+          <div className="text-text-muted mb-2.5 text-sm">
+            Contenedor: <span className="font-data">{route.containerCode}</span>
+          </div>
+        )
+      )}
 
       <div className="mb-2.5 flex gap-3.5">
         <Stat value={route.stopCount} label="Bultos" />

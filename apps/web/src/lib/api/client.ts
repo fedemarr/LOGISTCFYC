@@ -256,6 +256,7 @@ export interface RouteItem {
   status: RouteStatus;
   assignedDriverId: string | null;
   vehicleId: string | null;
+  containerId: string | null;
   plannedDistanceM: number | null;
   plannedDurationS: number | null;
   plannedStops: number | null;
@@ -264,6 +265,7 @@ export interface RouteItem {
   driverName: string | null;
   vehiclePlate: string | null;
   capacityPackages: number | null;
+  containerCode: string | null;
 }
 
 export interface GenerateRouteProposalResponse {
