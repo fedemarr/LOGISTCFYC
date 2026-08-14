@@ -41,7 +41,7 @@ CREATE POLICY "evidence_update_owner_or_staff"
   ON storage.objects FOR UPDATE TO authenticated
   USING (
     bucket_id = 'delivery-evidence'
-    AND (owner_id = auth.uid() OR public.has_role('admin'::user_role) OR public.has_role('dispatcher'::user_role))
+    AND (owner_id = auth.uid()::text OR public.has_role('admin'::user_role) OR public.has_role('dispatcher'::user_role))
   );
 
 --    Lectura: NUNCA público. El servidor firma URLs con la service role
