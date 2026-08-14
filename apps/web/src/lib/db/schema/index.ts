@@ -16,5 +16,6 @@ export * from "./support";
 export * from "./gps";
 export * from "./events";
 export * from "./rate_limits";
+export * from "./device-tokens";
 export * from "./sync";
 export * from "./route-matrix-cache";
