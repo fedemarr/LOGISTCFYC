@@ -46,6 +46,13 @@ const config: ExpoConfig = {
     "expo-splash-screen",
     "expo-audio",
     [
+      "expo-notifications",
+      {
+        color: "#0B6BCB",
+        defaultChannel: "default",
+      },
+    ],
+    [
       "expo-camera",
       {
         cameraPermission:
