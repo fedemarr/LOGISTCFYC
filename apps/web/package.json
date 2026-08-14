@@ -23,6 +23,7 @@
     "@fyc/geo": "workspace:*",
     "@fyc/shared": "workspace:*",
     "@fyc/state-machine": "workspace:*",
+    "@sentry/nextjs": "^10.70.0",
     "@supabase/supabase-js": "^2.112.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
