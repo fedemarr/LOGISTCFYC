@@ -5,6 +5,7 @@ import { api, type Page } from "@/lib/api/client";
 import type { PackageStatus } from "@fyc/state-machine";
 import { useResourceList } from "@/lib/hooks/use-resource-list";
 import { PageHeader } from "@/components/page-header";
+import { PackageTimelineDialog } from "@/components/package-timeline-dialog";
 import { SearchBar } from "@/components/search-bar";
 import { EmptyState, ErrorState, TableSkeleton } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
@@ -137,6 +138,7 @@ export default function PaquetesPage() {
                 <TableHead>Destinatario</TableHead>
                 <TableHead>Prioridad</TableHead>
                 <TableHead>Creado</TableHead>
+                <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -163,6 +165,12 @@ export default function PaquetesPage() {
                   </TableCell>
                   <TableCell className="text-text-muted whitespace-nowrap">
                     {dateFormat.format(new Date(p.createdAt))}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <PackageTimelineDialog
+                      packageId={p.id}
+                      internalCode={p.internalCode}
+                    />
                   </TableCell>
                 </TableRow>
               ))}

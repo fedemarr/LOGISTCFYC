@@ -4,6 +4,7 @@ import * as React from "react";
 import { AlertTriangle, PackageX, Truck } from "lucide-react";
 import { api, type DispatchInbox } from "@/lib/api/client";
 import { PageHeader } from "@/components/page-header";
+import { ResolveIncidentDialog } from "@/components/incident-resolve-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState, ErrorState, TableSkeleton } from "@/components/states";
@@ -155,6 +156,13 @@ export default function OperacionesPage() {
                     >
                       foto evidencia
                     </a>
+                  )}
+                  {inc.packageId && (
+                    <ResolveIncidentDialog
+                      incidentId={inc.incidentId}
+                      internalCode={inc.internalCode ?? inc.incidentId}
+                      onResolved={() => void load(true)}
+                    />
                   )}
                 </div>
               ))}

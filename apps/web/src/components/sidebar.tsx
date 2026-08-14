@@ -7,7 +7,9 @@ import type { Role } from "@fyc/shared";
 import {
   Boxes,
   Building2,
+  BarChart3,
   LayoutDashboard,
+  LifeBuoy,
   ListChecks,
   Map,
   Package,
@@ -59,6 +61,18 @@ const NAV_ITEMS: {
     label: "Operaciones",
     icon: ListChecks,
     roles: ["admin", "dispatcher"],
+  },
+  {
+    href: "/soporte",
+    label: "Soporte",
+    icon: LifeBuoy,
+    roles: ["admin", "dispatcher", "driver"],
+  },
+  {
+    href: "/metricas",
+    label: "Métricas",
+    icon: BarChart3,
+    roles: ["admin", "dispatcher", "warehouse"],
   },
   {
     href: "/monitoreo",
