@@ -66,6 +66,9 @@ const CORE_TRANSITIONS: readonly TransitionRule[] = [
     allowedRoles: APPROVERS,
     precondition: requireDriverEvidenceOverride,
   },
+  // RETRY_NOW (§9.7): el chofer reintenta HOY — la parada vuelve a la secuencia
+  // activa (route_stops PENDING) y el paquete a EN_REPARTO en la misma ruta.
+  { from: "FALLA_REPORTADA", to: "EN_REPARTO", allowedRoles: APPROVERS },
 
   // Reprogramado → nuevo día de reparto (§4).
   { from: "REPROGRAMADO", to: "GEOCODIFICADO", allowedRoles: STAFF },

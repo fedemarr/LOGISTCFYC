@@ -1,11 +1,15 @@
 import { consumeRateLimit, jsonError, jsonOk, requireRole, toAppError } from "@/lib/api";
 import { getDispatchInbox } from "@/lib/services/monitoring";
+import { escalateOverdueIncidents } from "@/lib/services/incidents";
 
 /**
  * GET /api/operations/inbox — FASE 11, bandeja de excepciones del
  * dispatcher (su pantalla principal): incidentes abiertos con SLA,
  * entregas a revisar (>150 m, anti-fraude §9.5) y actas de custodia en
  * diferencia sin resolver. Solo admin/dispatcher.
+ *
+ * FASE 12: antes de armar la bandeja se resuelven por default (RETURN) las
+ * incidencias cuyo SLA interno de 10 min ya venció (§9.7) — idempotente.
  */
 export async function GET(request: Request): Promise<Response> {
   try {
@@ -15,6 +19,7 @@ export async function GET(request: Request): Promise<Response> {
       windowSeconds: 60,
     });
 
+    await escalateOverdueIncidents(ctx.orgId);
     const inbox = await getDispatchInbox(ctx.orgId);
     return jsonOk(inbox);
   } catch (err) {
