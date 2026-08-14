@@ -14,7 +14,17 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db } from "../index";
-import { organizations, packages, routes, users, userRoles, operations } from "../schema";
+import {
+  devicePushTokens,
+  incidents,
+  organizations,
+  packages,
+  routes,
+  supportTickets,
+  users,
+  userRoles,
+  operations,
+} from "../schema";
 import { purgeTestEvents } from "../test-helpers";
 
 const TEST_PASSWORD = "RlsTest123!";
@@ -58,6 +68,8 @@ describe("RLS (integración contra Supabase real)", () => {
   let routeBId: string;
   let packageAId: string;
   let packageBId: string;
+  let incidentAId: string;
+  let ticketAId: string;
 
   beforeAll(async () => {
     const [org] = await db.insert(organizations).values({ name: orgName }).returning();
@@ -139,6 +151,41 @@ describe("RLS (integración contra Supabase real)", () => {
       throw new Error("no se pudieron crear los paquetes de test");
     packageAId = packageA.id;
     packageBId = packageB.id;
+
+    const [incident] = await db
+      .insert(incidents)
+      .values({
+        orgId,
+        packageId: packageAId,
+        routeId: routeAId,
+        driverId: driverAId,
+        reason: "NO_ONE_HOME",
+        status: "OPEN",
+      })
+      .returning();
+    if (!incident) throw new Error("no se pudo crear el incidente de test");
+    incidentAId = incident.id;
+
+    const [ticket] = await db
+      .insert(supportTickets)
+      .values({
+        orgId,
+        driverId: driverAId,
+        ticketNumber: `RLS-TKT-${runId}`,
+        category: "GENERAL",
+        subject: "Ticket de test RLS",
+      })
+      .returning();
+    if (!ticket) throw new Error("no se pudo crear el ticket de test");
+    ticketAId = ticket.id;
+
+    await db.insert(devicePushTokens).values({
+      orgId,
+      userId: driverAId,
+      token: `ExponentPushToken[${runId}]`,
+      deviceId: `device-${runId}`,
+      platform: "android",
+    });
   }, 30_000);
 
   afterAll(async () => {
@@ -155,6 +202,9 @@ describe("RLS (integración contra Supabase real)", () => {
     // datos reales, solo contra el fixture de este test.
     await purgeTestEvents(orgId);
 
+    await db.delete(devicePushTokens).where(sql`org_id = ${orgId}`);
+    await db.delete(incidents).where(sql`org_id = ${orgId}`);
+    await db.delete(supportTickets).where(sql`org_id = ${orgId}`);
     await db.delete(packages).where(sql`org_id = ${orgId}`);
     await db.delete(routes).where(sql`org_id = ${orgId}`);
     await db.delete(operations).where(sql`org_id = ${orgId}`);
@@ -164,7 +214,6 @@ describe("RLS (integración contra Supabase real)", () => {
     await supabaseAdmin.auth.admin.deleteUser(driverAId).catch(() => {});
     await supabaseAdmin.auth.admin.deleteUser(driverBId).catch(() => {});
   }, 30_000);
-
   it("un driver ve los paquetes de SU ruta", async () => {
     const clientA = await signInAs(driverAEmail);
     const { data, error } = await clientA
@@ -227,5 +276,53 @@ describe("RLS (integración contra Supabase real)", () => {
       .catch((e: unknown) => e as Error & { cause?: Error });
     expect(err).toBeInstanceOf(Error);
     expect((err as Error & { cause?: Error }).cause?.message).toMatch(/append-only/i);
+  });
+
+  it("un driver ve sus propias incidencias (FASE 12)", async () => {
+    const clientA = await signInAs(driverAEmail);
+    const { data, error } = await clientA
+      .from("incidents")
+      .select("id")
+      .eq("id", incidentAId);
+    expect(error).toBeNull();
+    expect(data).toHaveLength(1);
+  });
+
+  it("un driver NO ve las incidencias de otro chofer (FASE 12)", async () => {
+    const clientB = await signInAs(driverBEmail);
+    const { data, error } = await clientB
+      .from("incidents")
+      .select("id")
+      .eq("id", incidentAId);
+    expect(error).toBeNull();
+    expect(data).toHaveLength(0);
+  });
+
+  it("un driver NO lee el ticket de soporte de otro chofer (FASE 12)", async () => {
+    const clientB = await signInAs(driverBEmail);
+    const { data, error } = await clientB
+      .from("support_tickets")
+      .select("id")
+      .eq("id", ticketAId);
+    expect(error).toBeNull();
+    expect(data).toHaveLength(0);
+  });
+
+  it("un driver lee su propio ticket de soporte (FASE 12)", async () => {
+    const clientA = await signInAs(driverAEmail);
+    const { data, error } = await clientA
+      .from("support_tickets")
+      .select("id")
+      .eq("id", ticketAId);
+    expect(error).toBeNull();
+    expect(data).toHaveLength(1);
+  });
+
+  it("device_push_tokens es inaccesible para el cliente autenticado (sin políticas, FASE 12)", async () => {
+    const clientA = await signInAs(driverAEmail);
+    const { data, error } = await clientA.from("device_push_tokens").select("*");
+    // Sin políticas RLS, SELECT devuelve 0 filas (no error).
+    expect(error).toBeNull();
+    expect(data).toHaveLength(0);
   });
 });

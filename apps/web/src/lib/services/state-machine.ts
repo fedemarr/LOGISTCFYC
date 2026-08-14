@@ -91,16 +91,26 @@ async function logPackageEvent(params: {
   );
 }
 
-/** Ejecuta una transición de paquete completa, atómica y auditada. */
+/** Tipo de la transacción de Drizzle (para pasarle una tx abierta). */
+export type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Ejecuta una transición de paquete completa, atómica y auditada.
+ * Sin `tx` abre su propia transacción; con `tx` se une a una ya abierta
+ * (FASE 13: operaciones compuestas como resolver incidencia o cerrar día
+ * comparten la transacción del llamado para no quedar en estado intermedio
+ * si algo falla a mitad de camino).
+ */
 export async function runPackageTransition(
   request: TransitionRequest,
+  tx?: DbTx,
 ): Promise<TransitionResult> {
-  return db.transaction(async (tx) => {
+  const run = async (client: DbTx): Promise<TransitionResult> => {
     let locked: LockedPackage | null = null;
 
     const deps: TransitionDeps = {
       async getCurrentStatus(packageId: string): Promise<LockedPackage["status"]> {
-        const rows = await tx
+        const rows = await client
           .select({ status: packages.status, orgId: packages.orgId })
           .from(packages)
           .where(eq(packages.id, packageId))
@@ -120,7 +130,7 @@ export async function runPackageTransition(
         }
         const now = new Date();
 
-        const [updated] = await tx
+        const [updated] = await client
           .update(packages)
           .set({ status: params.toStatus, updatedAt: now })
           .where(and(eq(packages.id, params.packageId), eq(packages.orgId, locked.orgId)))
@@ -139,7 +149,7 @@ export async function runPackageTransition(
           toStatus: params.toStatus,
           metadata: params.metadata,
           occurredAt: now,
-          tx,
+          tx: client,
         });
 
         return { eventId };
@@ -147,5 +157,8 @@ export async function runPackageTransition(
     };
 
     return transition(request, deps);
-  });
+  };
+
+  if (tx) return run(tx);
+  return db.transaction(run);
 }

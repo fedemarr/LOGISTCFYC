@@ -18,13 +18,41 @@ function validate<T>(schema: ZodType<T>, value: unknown): T {
   return result.data;
 }
 
-/** Valida el body JSON de la request. Falla con 400 si no es JSON o no matchea. */
-export async function parseBody<T>(schema: ZodType<T>, request: Request): Promise<T> {
+/** Tamaño máximo de body JSON por defecto (OWASP: proteger de payloads gigantes). */
+export const DEFAULT_MAX_BODY_BYTES = 1_000_000;
+
+/**
+ * Valida el body JSON de la request. Falla con 400 si no es JSON o no
+ * matchea. `maxBytes` corta requests con body demasiado grande ANTES de
+ * parsear (el JSON queda igualmente en memoria un momento, pero el corte
+ * evita que un JSON de 50MB llegue al parser de zod).
+ */
+export async function parseBody<T>(
+  schema: ZodType<T>,
+  request: Request,
+  options?: { maxBytes?: number },
+): Promise<T> {
+  const maxBytes = options?.maxBytes ?? DEFAULT_MAX_BODY_BYTES;
+
+  const contentLength = request.headers.get("content-length");
+  if (contentLength !== null && Number(contentLength) > maxBytes) {
+    throw Errors.validation(
+      `el body supera el límite de ${Math.floor(maxBytes / 1024)}KB`,
+    );
+  }
+
   let raw: unknown;
   try {
     raw = await request.json();
   } catch {
     throw Errors.validation("el body no es JSON válido");
+  }
+
+  const size = JSON.stringify(raw)?.length ?? 0;
+  if (size > maxBytes) {
+    throw Errors.validation(
+      `el body supera el límite de ${Math.floor(maxBytes / 1024)}KB`,
+    );
   }
   return validate(schema, raw);
 }

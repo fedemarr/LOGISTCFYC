@@ -50,7 +50,7 @@ export async function POST(
   try {
     const ctx = await requireRole(request, ["admin", "dispatcher", "warehouse"]);
     const { id: operationId } = await parseParams(paramsSchema, params);
-    const body = await parseBody(bodySchema, request);
+    const body = await parseBody(bodySchema, request, { maxBytes: 5_000_000 });
 
     await consumeRateLimit(`operations:import:${ctx.userId}`, {
       limit: 10,
