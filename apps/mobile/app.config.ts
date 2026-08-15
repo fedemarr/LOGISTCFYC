@@ -1,6 +1,26 @@
 import type { ExpoConfig } from "expo/config";
 
 /**
+ * FASE 13 — Sentry mobile. El config plugin `@sentry/react-native/expo`
+ * sólo se activa cuando SENTRY_ORG y SENTRY_PROJECT existen en el entorno
+ * (como secrets de EAS Build); sin ellos el SDK sigue funcionando en
+ * runtime (si EXPO_PUBLIC_SENTRY_DSN está seteado) pero no se suben source
+ * maps. El DSN NO va acá — el plugin exige org/project porque la subida
+ * la hace sentry-cli con SENTRY_AUTH_TOKEN del entorno de build.
+ */
+const sentryPlugin: [string, Record<string, string>] | null =
+  process.env.SENTRY_ORG && process.env.SENTRY_PROJECT
+    ? [
+        "@sentry/react-native/expo",
+        {
+          url: "https://sentry.io/",
+          project: process.env.SENTRY_PROJECT,
+          organization: process.env.SENTRY_ORG,
+        },
+      ]
+    : null;
+
+/**
  * PROMPT-MAESTRO §5: "Development Build, NO Expo Go [...] Configurar EAS
  * Build desde la FASE 1 — descubrirlo en la FASE 10 obliga a rehacer."
  *
@@ -79,6 +99,7 @@ const config: ExpoConfig = {
         microphonePermission: false,
       },
     ],
+    ...(sentryPlugin ? [sentryPlugin] : []),
   ],
   experiments: {
     typedRoutes: true,
