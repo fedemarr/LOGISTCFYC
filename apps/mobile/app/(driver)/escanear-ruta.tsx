@@ -18,11 +18,11 @@ const BARCODE_TYPES = ["qr", "code128", "code39", "pdf417", "datamatrix"] as con
  *
  *   1. `startCustodyByRoute(routeId)` — abre el acta de custodia de la ruta
  *      SIN escanear el contenedor físico (el QR codifica solo la ruta).
- *   2. `downloadCurrentRoute(db)` — baja la ruta + paradas a local, así la
- *      ruta aparece en la app (estado ASSIGNED → el tracking arranca y el
- *      chofer aparece en Seguimiento).
- *   3. Navega a `/custodia`, que sigue el flujo conocido: conteo → custodia
- *      → iniciar ruta.
+ *   2. `downloadCurrentRoute(db)` — baja la ruta + paradas a local.
+ *   3. Navega a `/ruta-encontrada` — pantalla amigable con el mapa ya
+ *      cargado (pedido de Fede) — que de ahí en más lleva a `/custodia`,
+ *      el flujo conocido: conteo → custodia → iniciar ruta (el tracking
+ *      arranca recién ahí, cuando la ruta pasa a ASSIGNED de verdad).
  *
  * Si el QR no es de ruta, avisa y queda listo para volver a escanear.
  */
@@ -68,7 +68,10 @@ export default function EscanearRutaScreen() {
       await startCustodyByRoute(routeId);
       await downloadCurrentRoute(db).catch(() => undefined);
       playFeedback("ok");
-      router.replace("/custodia");
+      // Antes de tirar al chofer directo al conteo bulto por bulto,
+      // pantalla amigable con el mapa ya cargado (pedido de Fede) — el
+      // conteo sigue pasando después, esto solo antepone un paso.
+      router.replace("/ruta-encontrada");
     } catch (err) {
       playFeedback("error");
       setBanner({

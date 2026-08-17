@@ -85,9 +85,22 @@ export default function IniciarRutaScreen() {
         };
         if (locationPermissionGranted) {
           try {
-            const position = await Location.getCurrentPositionAsync({
-              accuracy: Location.Accuracy.Highest,
-            });
+            // `Accuracy.Highest` espera un fix GPS puro de precisión
+            // máxima — adentro de un depósito (mala señal) esto podía
+            // tardar muchísimo o no resolver nunca, dejando el checklist
+            // trabado en "cargando" para siempre (queja real de Fede).
+            // `High` combina GPS+red, responde mucho más rápido, y le
+            // ponemos un timeout propio (expo-location no trae uno) para
+            // que si ni así contesta, el checklist siga adelante en vez
+            // de colgarse — el chofer ve "sin señal GPS" y puede
+            // reintentar con "Verificar de nuevo" una vez que salga a un
+            // lugar más despejado, en vez de mirar un spinner sin fin.
+            const position = await Promise.race([
+              Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("timeout")), 8_000),
+              ),
+            ]);
             coords = {
               lat: position.coords.latitude,
               lng: position.coords.longitude,

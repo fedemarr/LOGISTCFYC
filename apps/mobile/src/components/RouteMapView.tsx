@@ -47,12 +47,16 @@ function statusColor(status: string): string {
 export function RouteMapView({
   stops,
   onStopPress,
-  height = 260,
+  height,
+  fill = false,
   userLocation = null,
 }: {
   stops: RouteMapStop[];
   onStopPress?: (stopId: string) => void;
+  /** Alto fijo en px — ignorado si `fill` es true. Default 260 si no se pasa ninguno de los dos. */
   height?: number;
+  /** Ocupa todo el espacio del contenedor flex en vez de un alto fijo — para pantallas donde el mapa es lo principal (ej. "ruta-encontrada"). */
+  fill?: boolean;
   /** Ya no hace falta pasarla — `showsUserLocation` la resuelve sola —
    *  se mantiene el prop para no romper a quien todavía la pasa. */
   userLocation?: RouteMapUserLocation | null;
@@ -79,7 +83,13 @@ export function RouteMapView({
   }, [points.length]);
 
   return (
-    <View style={{ height, borderRadius: 12, overflow: "hidden" }}>
+    <View
+      style={
+        fill
+          ? { flex: 1, borderRadius: 12, overflow: "hidden" }
+          : { height: height ?? 260, borderRadius: 12, overflow: "hidden" }
+      }
+    >
       <MapView
         ref={mapRef}
         provider={PROVIDER_GOOGLE}

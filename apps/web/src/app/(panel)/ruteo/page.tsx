@@ -166,7 +166,7 @@ export default function RuteoPage() {
   const hasRoutes = !!routeList && routeList.length > 0;
 
   return (
-    <div className="-m-4 flex h-[calc(100vh-2rem)] flex-col gap-0 sm:-m-6 sm:h-[calc(100vh-3rem)]">
+    <div className="-m-4 flex h-[calc(100dvh-2rem)] flex-col gap-0 sm:-m-6 sm:h-[calc(100dvh-3rem)]">
       <div className="flex items-center justify-between px-4 pt-4 sm:px-6 sm:pt-6">
         <PageHeader title="Ruteo" description={`Op. ${operation.operationDate}`} />
         <div className="flex items-center gap-3">
