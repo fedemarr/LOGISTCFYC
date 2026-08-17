@@ -21,7 +21,6 @@ import {
 import type { LocalStopRow } from "../../../src/lib/db/schema";
 import { enqueueRouteFinished, enqueueStopsReordered } from "../../../src/lib/delivery";
 import { RouteMapView } from "../../../src/components/RouteMapView";
-import type { RouteMapUserLocation } from "../../../src/components/RouteMapView";
 import { colors, fonts, radius, spacing, touch } from "../../../src/theme/tokens";
 
 const STOP_LABELS: Record<string, string> = {
@@ -55,7 +54,6 @@ export default function RutaScreen() {
   >(undefined);
   const [finishing, setFinishing] = React.useState(false);
   const [sheetOpen, setSheetOpen] = React.useState(false);
-  const [userLoc, setUserLoc] = React.useState<RouteMapUserLocation | null>(null);
 
   const load = React.useCallback(async () => {
     const result = await getLocalRoute(db);
@@ -75,35 +73,21 @@ export default function RutaScreen() {
     React.useCallback(() => {
       void load();
 
-      // Punto azul del chofer, estilo Google Maps (pedido de Fede): pide
-      // el permiso de ubicación apenas entra a esta pantalla si todavía
-      // no lo dio (antes solo intentaba LEER una posición sin pedirlo
-      // nunca — si no estaba ya concedido por otro camino, el punto azul
-      // no aparecía jamás y al usuario tampoco se le preguntaba), y sigue
-      // la posición en vivo mientras la pantalla está en foco, no una
-      // sola lectura estática.
+      // Punto azul del chofer, Google Maps real (pedido de Fede): pide el
+      // permiso de ubicación apenas entra a esta pantalla si todavía no
+      // lo dio (antes solo intentaba LEER una posición sin pedirlo nunca
+      // — si no estaba ya concedido por otro camino, el punto azul no
+      // aparecía jamás y al usuario tampoco se le preguntaba). El punto
+      // en sí ya no se maneja a mano acá: `RouteMapView` usa
+      // `react-native-maps` con `showsUserLocation`, que lo sigue en
+      // vivo de forma nativa una vez que el permiso está concedido.
       let cancelled = false;
-      let subscription: Location.LocationSubscription | null = null;
-
-      void (async () => {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (cancelled || status !== "granted") return;
-
-        subscription = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.Balanced,
-            timeInterval: 5_000,
-            distanceInterval: 15,
-          },
-          (pos) => {
-            setUserLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-          },
-        );
-      })().catch(() => undefined);
+      void Location.requestForegroundPermissionsAsync().catch(() => {
+        if (cancelled) return;
+      });
 
       return () => {
         cancelled = true;
-        subscription?.remove();
       };
     }, [load]),
   );
@@ -238,7 +222,6 @@ export default function RutaScreen() {
                 lng: s.lng!,
                 status: s.status,
               }))}
-            userLocation={userLoc}
             height={360}
             onStopPress={(stopId) => router.push(`/parada/${stopId}`)}
           />

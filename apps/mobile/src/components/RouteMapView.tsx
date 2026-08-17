@@ -1,22 +1,21 @@
 import * as React from "react";
-import { View } from "react-native";
-import { WebView } from "react-native-webview";
+import { StyleSheet, Text, View } from "react-native";
+import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { colors } from "../theme/tokens";
 
 /**
- * Mapa de "Mis paradas" — pedido explícito de Fede: la pantalla principal
- * de la app tiene que verse como un mapa con las paradas pineadas y
- * numeradas (igual al patrón de apps de reparto conocidas), no una lista
- * pelada. Colores/tema siguen siendo los de FYC (oscuro, §13) — se
- * confirmó explícitamente no copiar la paleta de la app de referencia.
+ * Mapa de "Mis paradas" — Google Maps real (pedido explícito de Fede,
+ * después de probar la primera versión con Leaflet+WebView y pedir "un
+ * mapa mejor, como el de Google"). Requiere `GOOGLE_MAPS_API_KEY_ANDROID`
+ * en el build (ver `app.config.ts` / `eas.json`) — key restringida a
+ * "Maps SDK for Android" + el paquete/SHA-1 de la app, misma lógica que
+ * las keys server-side de geocoding/routes (ver docs/DECISIONES.md).
  *
- * Implementado con Leaflet adentro de un WebView, NO `react-native-maps`:
- * `react-native-maps` en Android requiere una API key de Google Maps para
- * las tiles (mismo tipo de fricción que ya resolvimos para geocoding) y
- * es otro pipeline de configuración de billing aparte. Leaflet + tiles
- * gratuitas de CartoCDN (mismo proveedor que ya usa el mapa de ruteo del
- * panel web, ver ADR-043) no necesita ninguna key — se genera 100% local
- * en el HTML del WebView, sin pedirle nada al servidor.
+ * Reemplaza el mapa anterior (Leaflet adentro de un WebView, sin key,
+ * ver ADR de FASE A) — ese seguía siendo válido como fallback sin
+ * facturación, pero Fede prefirió pagar el mapa real. El punto azul de
+ * ubicación ahora lo resuelve `react-native-maps` nativo
+ * (`showsUserLocation`), no hace falta manejarlo a mano como con Leaflet.
  */
 
 export interface RouteMapStop {
@@ -27,7 +26,6 @@ export interface RouteMapStop {
   status: string;
 }
 
-/** Ubicación del chofer para el punto azul estilo Google Maps (FASE A). */
 export interface RouteMapUserLocation {
   lat: number;
   lng: number;
@@ -46,86 +44,6 @@ function statusColor(status: string): string {
   }
 }
 
-function buildHtml(
-  stops: RouteMapStop[],
-  userLocation: RouteMapUserLocation | null,
-): string {
-  const points = stops
-    .filter((s) => s.lat != null && s.lng != null)
-    .map((s) => ({ ...s, color: statusColor(s.status) }));
-
-  return `<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<style>
-  html, body, #map { height: 100%; margin: 0; background: ${colors.bg}; }
-  .stop-pin {
-    width: 28px; height: 28px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font: 700 12px system-ui, sans-serif; color: #0F1115;
-    border: 2px solid ${colors.bg};
-    box-shadow: 0 1px 3px rgba(0,0,0,.5);
-  }
-  .user-dot {
-    width: 16px; height: 16px; border-radius: 50%;
-    background: #3B82F6;
-    border: 3px solid #0F1115;
-    box-shadow: 0 0 0 5px rgba(59,130,246,.35);
-  }
-</style>
-</head>
-<body>
-<div id="map"></div>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-  const points = ${JSON.stringify(points)};
-  const user = ${JSON.stringify(userLocation)};
-  const map = L.map('map', { zoomControl: false, attributionControl: false });
-  L.control.zoom({ position: 'topright' }).addTo(map);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    subdomains: 'abcd', maxZoom: 20,
-  }).addTo(map);
-
-  const fit = [];
-  for (const p of points) fit.push([p.lat, p.lng]);
-  if (user) fit.push([user.lat, user.lng]);
-
-  if (fit.length > 0) {
-    const bounds = L.latLngBounds(fit);
-    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
-  } else {
-    map.setView([-34.6, -58.45], 11);
-  }
-
-  if (user) {
-    const userIcon = L.divIcon({
-      className: '',
-      html: '<div class="user-dot"></div>',
-      iconSize: [16, 16],
-      iconAnchor: [8, 8],
-    });
-    L.marker([user.lat, user.lng], { icon: userIcon, interactive: false }).addTo(map);
-  }
-
-  for (const p of points) {
-    const icon = L.divIcon({
-      className: '',
-      html: '<div class="stop-pin" style="background:' + p.color + '">' + p.sequence + '</div>',
-      iconSize: [28, 28],
-      iconAnchor: [14, 14],
-    });
-    const marker = L.marker([p.lat, p.lng], { icon }).addTo(map);
-    marker.on('click', () => {
-      window.ReactNativeWebView.postMessage(p.id);
-    });
-  }
-</script>
-</body>
-</html>`;
-}
-
 export function RouteMapView({
   stops,
   onStopPress,
@@ -135,22 +53,75 @@ export function RouteMapView({
   stops: RouteMapStop[];
   onStopPress?: (stopId: string) => void;
   height?: number;
+  /** Ya no hace falta pasarla — `showsUserLocation` la resuelve sola —
+   *  se mantiene el prop para no romper a quien todavía la pasa. */
   userLocation?: RouteMapUserLocation | null;
 }) {
-  // Se recalcula solo cuando cambia la lista de paradas o la ubicación del
-  // chofer (no en cada render) — reconstruir el HTML entero recarga el
-  // WebView, no vale la pena hacerlo por cambios que no tocan pines (ej. un
-  // timer de arriba).
-  const html = React.useMemo(() => buildHtml(stops, userLocation), [stops, userLocation]);
+  const mapRef = React.useRef<MapView>(null);
+  const points = React.useMemo(
+    () => stops.filter((s) => s.lat != null && s.lng != null),
+    [stops],
+  );
+
+  // Encuadra todas las paradas (+ ubicación del chofer, si ya la tiene)
+  // apenas hay puntos para mostrar — mismo criterio que tenía el mapa de
+  // Leaflet (fitBounds), react-native-maps lo llama fitToCoordinates.
+  React.useEffect(() => {
+    if (points.length === 0 || !mapRef.current) return;
+    const coords = points.map((p) => ({ latitude: p.lat, longitude: p.lng }));
+    if (userLocation)
+      coords.push({ latitude: userLocation.lat, longitude: userLocation.lng });
+    mapRef.current.fitToCoordinates(coords, {
+      edgePadding: { top: 40, right: 40, bottom: 40, left: 40 },
+      animated: true,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo re-encuadrar cuando cambia la cantidad de puntos, no en cada pequeño ajuste
+  }, [points.length]);
 
   return (
     <View style={{ height, borderRadius: 12, overflow: "hidden" }}>
-      <WebView
-        originWhitelist={["*"]}
-        source={{ html }}
-        onMessage={(e) => onStopPress?.(e.nativeEvent.data)}
-        style={{ backgroundColor: colors.bg }}
-      />
+      <MapView
+        ref={mapRef}
+        provider={PROVIDER_GOOGLE}
+        style={StyleSheet.absoluteFill}
+        showsUserLocation
+        showsMyLocationButton
+        initialRegion={{
+          latitude: points[0]?.lat ?? -34.6,
+          longitude: points[0]?.lng ?? -58.45,
+          latitudeDelta: 0.1,
+          longitudeDelta: 0.1,
+        }}
+      >
+        {points.map((p) => (
+          <Marker
+            key={p.id}
+            coordinate={{ latitude: p.lat, longitude: p.lng }}
+            onPress={() => onStopPress?.(p.id)}
+          >
+            <View style={[styles.pin, { backgroundColor: statusColor(p.status) }]}>
+              <Text style={styles.pinLabel}>{p.sequence}</Text>
+            </View>
+          </Marker>
+        ))}
+      </MapView>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  pin: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: colors.bg,
+  },
+  pinLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#0F1115",
+  },
+});

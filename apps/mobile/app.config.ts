@@ -99,6 +99,18 @@ const config: ExpoConfig = {
         microphonePermission: false,
       },
     ],
+    // Google Maps real en el mapa de "Mis paradas" (pedido de Fede, ver
+    // RouteMapView.tsx). La key se restringe en Google Cloud a "Maps SDK
+    // for Android" + el paquete/SHA-1 de esta app — no es secreta en el
+    // sentido de "hay que ocultarla" (termina compilada en el APK, cualquier
+    // key de Maps SDK for Android lo está), pero igual se inyecta por env
+    // en vez de hardcodearla, mismo patrón que el resto de las keys.
+    [
+      "react-native-maps",
+      {
+        androidGoogleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY_ANDROID,
+      },
+    ],
     ...(sentryPlugin ? [sentryPlugin] : []),
   ],
   experiments: {

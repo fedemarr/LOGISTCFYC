@@ -40,11 +40,30 @@ export function useDriverTracking(): void {
         const active = isActive(route?.status);
 
         if (active && !startedRef.current) {
-          const foreground = await Location.getForegroundPermissionsAsync();
+          // PEDIR el permiso acá, no solo revisar si ya está — antes esto
+          // solo leía `getForegroundPermissionsAsync()`, así que si el
+          // chofer nunca lo había concedido por otro camino, el tracking
+          // jamás arrancaba y la ruta nunca aparecía con ubicación en
+          // `/monitoreo` del panel web, aunque la ruta ya figurara como
+          // ACTIVA ahí (pedido de Fede: "apenas escanee ya debería
+          // aparecer"). La pantalla "Ruta" ya lo pide apenas abre la app,
+          // pero no hay que depender de ese orden — acá se vuelve a pedir
+          // si todavía no está concedido, sin bloquear el resto del check.
+          const foreground = await Location.requestForegroundPermissionsAsync();
           if (foreground.granted) {
             startedRef.current = true;
             adaptiveTracking.start(db);
           }
+          // El background sigue solo CHEQUEANDO (no pidiendo): en Android
+          // reciente el permiso "Permitir todo el tiempo" no se puede
+          // disparar con un simple prompt del sistema como el de
+          // foreground — necesita su propio flujo de UX (explicar antes
+          // de pedir, mandar a Config si hace falta) que no se puede
+          // resolver bien sin probarlo en un dispositivo real. Con
+          // foreground activo, el chofer YA aparece en el mapa de
+          // monitoreo mientras tenga la app abierta — el background es
+          // una mejora para cuando la pantalla está bloqueada, no un
+          // bloqueante para que la funcionalidad básica ande.
           const background = await Location.getBackgroundPermissionsAsync();
           if (background.granted) {
             await startBackgroundTracking().catch(() => undefined);
