@@ -1,0 +1,28 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    name: CI (puerta de calidad)
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Deploy a producción (Vercel)
+    needs: ci
+    # Se activa solo si el secret VERCEL_DEPLOY_HOOK está configurado.
+    # Mientras no lo esté, el deploy corre por la integración git nativa de
+    # Vercel (Settings → Git → auto-deploy desde main). Ver docs/OPERACION.md.
+    if: ${{ secrets.VERCEL_DEPLOY_HOOK != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Disparar build de producción en Vercel
+        run: curl -fsS -X POST "$VERCEL_DEPLOY_HOOK"
+        env:
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}

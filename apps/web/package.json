@@ -16,7 +16,8 @@
     "db:seed": "dotenv -e ../../.env -- tsx src/lib/db/seed/index.ts",
     "db:studio": "dotenv -e ../../.env -- drizzle-kit studio",
     "db:verify": "dotenv -e ../../.env -- tsx src/lib/db/verify.ts",
-    "test": "dotenv -e ../../.env -- vitest run"
+    "test": "dotenv -e ../../.env -- vitest run",
+    "test:unit": "dotenv -e ../../.env -- vitest run src/lib/api/__tests__/errors-response-logger.test.ts src/lib/services/__tests__/export.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

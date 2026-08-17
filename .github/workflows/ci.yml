@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_call:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -14,6 +15,9 @@ env:
   # de env vars en CI. Nunca poner acá una key real (§0, regla 6).
   NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
   NEXT_PUBLIC_SUPABASE_ANON_KEY: "placeholder-anon-key"
+  # Falsa a propósito: los tests de web importan la capa de db (que lanza si
+  # DATABASE_URL no está definida) pero nunca conectan en CI.
+  DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci"
 
 jobs:
   lint-typecheck-test:
@@ -38,5 +42,8 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Test
-        run: pnpm test
+      - name: Test (unit, sin DB)
+        run: pnpm test:ci
+
+      - name: Test unit web
+        run: pnpm --filter @fyc/web test:unit
