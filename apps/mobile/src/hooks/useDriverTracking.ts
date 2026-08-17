@@ -10,8 +10,9 @@ import {
 const POLL_STATUS_MS = 5_000;
 
 /**
- * Orquesta el tracking (§10) según el estado de la ruta local: cuando la
- * ruta pasa a IN_TRANSIT arranca el timer adaptativo (primer plano, solo
+ * Orquesta el tracking (§10 + FASE A) según el estado de la ruta local:
+ * cuando la ruta está ACTIVA (desde ASSIGNED, o sea desde que el chofer
+ * confirma la custodia) arranca el timer adaptativo (primer plano, solo
  * necesita permiso de foreground) y, si además hay permiso de background,
  * el tracking por distancia. Se monta en el layout de `(driver)` así
  * cubre cualquier pantalla; pollea el estado local cada 5 s (barato: es
@@ -20,6 +21,12 @@ const POLL_STATUS_MS = 5_000;
 export function useDriverTracking(): void {
   const db = useSQLiteContext();
   const startedRef = useRef(false);
+
+  const isActive = (status: string | null | undefined): boolean =>
+    status != null &&
+    status !== "APPROVED" &&
+    status !== "COMPLETED" &&
+    status !== "CANCELLED";
 
   useEffect(() => {
     let cancelled = false;
@@ -30,7 +37,7 @@ export function useDriverTracking(): void {
         const route = await db.getFirstAsync<{ status: string }>(
           `SELECT status FROM local_route LIMIT 1`,
         );
-        const active = route?.status === "IN_TRANSIT";
+        const active = isActive(route?.status);
 
         if (active && !startedRef.current) {
           const foreground = await Location.getForegroundPermissionsAsync();

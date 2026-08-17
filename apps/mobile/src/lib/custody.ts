@@ -65,13 +65,22 @@ export async function getCustodyState(): Promise<CustodyStateResult> {
   return api.get<CustodyStateResult>("/api/driver/custody");
 }
 
-/** POST /api/driver/custody/start — paso 1: escaneo del QR del contenedor. */
+/**
+ * POST /api/driver/custody/start — paso 1: escaneo del QR de la RUTA
+ * (FASE A) o del QR/código del contenedor asignado a la ruta.
+ */
 export async function startCustody(input: {
-  containerCode: string;
+  routeId?: string;
+  containerCode?: string;
   lat?: number;
   lng?: number;
 }): Promise<CustodyStateResult> {
   return api.post<CustodyStateResult>("/api/driver/custody/start", input);
+}
+
+/** Especialización del flujo de ruta (FASE A): abre la custodia desde el QR de la ruta. */
+export async function startCustodyByRoute(routeId: string): Promise<CustodyStateResult> {
+  return startCustody({ routeId });
 }
 
 /** POST /api/driver/custody/count — paso 2: conteo rápido de bultos. */

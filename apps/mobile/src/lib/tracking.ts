@@ -31,6 +31,13 @@ const MOVING_THRESHOLD_M = 50;
 
 export const GPS_TASK_NAME = TASK_NAME;
 
+/**
+ * Estados en los que la ruta genera GPS (FASE A: el chofer habilita y
+ * aparece en Seguimiento desde que confirma la custodia, APPROVED → ASSIGNED
+ * — no hace falta esperar a IN_TRANSIT para empezar a reportar).
+ */
+const ACTIVE_STATUS_WHERE = `status NOT IN ('APPROVED','COMPLETED','CANCELLED')`;
+
 interface TaskData {
   locations?: Location.LocationObject[];
 }
@@ -46,7 +53,7 @@ TaskManager.defineTask(
     try {
       const db = await openDatabaseAsync(DB_NAME);
       const route = await db.getFirstAsync<{ id: string }>(
-        `SELECT id FROM local_route WHERE status = 'IN_TRANSIT' LIMIT 1`,
+        `SELECT id FROM local_route WHERE ${ACTIVE_STATUS_WHERE} LIMIT 1`,
       );
       if (route) {
         await enqueueAction(db, "GPS_PING", {
@@ -70,7 +77,7 @@ TaskManager.defineTask(
   },
 );
 
-/** Arranca el tracking de background (solo ruta IN_TRANSIT). */
+/** Arranca el tracking de background (solo ruta activa, desde ASSIGNED). */
 export async function startBackgroundTracking(): Promise<void> {
   const hasPermission = await Location.hasServicesEnabledAsync();
   if (!hasPermission) return;
@@ -119,7 +126,7 @@ async function tickLoop(): Promise<void> {
     const db = activeDb as SQLiteDatabase;
     const nextStop = await db.getFirstAsync<{ lat: number | null; lng: number | null }>(
       `SELECT lat, lng FROM local_stop
-       WHERE route_id = (SELECT id FROM local_route WHERE status = 'IN_TRANSIT' LIMIT 1)
+       WHERE route_id = (SELECT id FROM local_route WHERE ${ACTIVE_STATUS_WHERE} LIMIT 1)
          AND status IN ('PENDING', 'ARRIVED') AND lat IS NOT NULL AND lng IS NOT NULL
        ORDER BY sequence ASC LIMIT 1`,
     );
@@ -130,7 +137,7 @@ async function tickLoop(): Promise<void> {
     const current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
 
     const route = await db.getFirstAsync<{ id: string }>(
-      `SELECT id FROM local_route WHERE status = 'IN_TRANSIT' LIMIT 1`,
+      `SELECT id FROM local_route WHERE ${ACTIVE_STATUS_WHERE} LIMIT 1`,
     );
     if (route) {
       await enqueueAction(db, "GPS_PING", {

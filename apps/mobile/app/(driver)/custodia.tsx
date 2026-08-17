@@ -8,11 +8,13 @@ import {
   View,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
+import { useSQLiteContext } from "expo-sqlite";
 import {
   getCustodyState,
   submitCustodyCount,
   type CustodyStateResult,
 } from "../../src/lib/custody";
+import { downloadCurrentRoute } from "../../src/lib/db/routes";
 import { colors, fonts, radius, spacing, touch } from "../../src/theme/tokens";
 
 /**
@@ -29,10 +31,12 @@ import { colors, fonts, radius, spacing, touch } from "../../src/theme/tokens";
  */
 export default function CustodiaScreen() {
   const router = useRouter();
+  const db = useSQLiteContext();
   const [state, setState] = React.useState<CustodyStateResult | null | undefined>(
     undefined,
   );
   const [error, setError] = React.useState<string | null>(null);
+  const syncedRouteRef = React.useRef(false);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -53,6 +57,18 @@ export default function CustodiaScreen() {
       };
     }, []),
   );
+
+  // FASE A: al confirmar la custodia (APPROVED → ASSIGNED server-side), la
+  // ruta se baja a local — aparece en la tab Ruta, el tracking arranca y el
+  // chofer sale en Seguimiento. Best-effort: si falla, la ruta se sigue
+  // pudiendo bajar desde Más.
+  React.useEffect(() => {
+    if (syncedRouteRef.current) return;
+    if (state?.canStart && state.route) {
+      syncedRouteRef.current = true;
+      void downloadCurrentRoute(db).catch(() => undefined);
+    }
+  }, [state, db]);
 
   if (state === undefined) {
     return (

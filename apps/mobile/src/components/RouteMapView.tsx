@@ -27,6 +27,12 @@ export interface RouteMapStop {
   status: string;
 }
 
+/** Ubicación del chofer para el punto azul estilo Google Maps (FASE A). */
+export interface RouteMapUserLocation {
+  lat: number;
+  lng: number;
+}
+
 function statusColor(status: string): string {
   switch (status) {
     case "COMPLETED":
@@ -40,7 +46,10 @@ function statusColor(status: string): string {
   }
 }
 
-function buildHtml(stops: RouteMapStop[]): string {
+function buildHtml(
+  stops: RouteMapStop[],
+  userLocation: RouteMapUserLocation | null,
+): string {
   const points = stops
     .filter((s) => s.lat != null && s.lng != null)
     .map((s) => ({ ...s, color: statusColor(s.status) }));
@@ -59,6 +68,12 @@ function buildHtml(stops: RouteMapStop[]): string {
     border: 2px solid ${colors.bg};
     box-shadow: 0 1px 3px rgba(0,0,0,.5);
   }
+  .user-dot {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #3B82F6;
+    border: 3px solid #0F1115;
+    box-shadow: 0 0 0 5px rgba(59,130,246,.35);
+  }
 </style>
 </head>
 <body>
@@ -66,17 +81,32 @@ function buildHtml(stops: RouteMapStop[]): string {
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
   const points = ${JSON.stringify(points)};
+  const user = ${JSON.stringify(userLocation)};
   const map = L.map('map', { zoomControl: false, attributionControl: false });
   L.control.zoom({ position: 'topright' }).addTo(map);
   L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     subdomains: 'abcd', maxZoom: 20,
   }).addTo(map);
 
-  if (points.length > 0) {
-    const bounds = L.latLngBounds(points.map((p) => [p.lat, p.lng]));
+  const fit = [];
+  for (const p of points) fit.push([p.lat, p.lng]);
+  if (user) fit.push([user.lat, user.lng]);
+
+  if (fit.length > 0) {
+    const bounds = L.latLngBounds(fit);
     map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
   } else {
     map.setView([-34.6, -58.45], 11);
+  }
+
+  if (user) {
+    const userIcon = L.divIcon({
+      className: '',
+      html: '<div class="user-dot"></div>',
+      iconSize: [16, 16],
+      iconAnchor: [8, 8],
+    });
+    L.marker([user.lat, user.lng], { icon: userIcon, interactive: false }).addTo(map);
   }
 
   for (const p of points) {
@@ -100,15 +130,18 @@ export function RouteMapView({
   stops,
   onStopPress,
   height = 260,
+  userLocation = null,
 }: {
   stops: RouteMapStop[];
   onStopPress?: (stopId: string) => void;
   height?: number;
+  userLocation?: RouteMapUserLocation | null;
 }) {
-  // Se recalcula solo cuando cambia la lista de paradas (no en cada
-  // render) — reconstruir el HTML entero recarga el WebView, no vale la
-  // pena hacerlo por cambios que no tocan pines (ej. un timer de arriba).
-  const html = React.useMemo(() => buildHtml(stops), [stops]);
+  // Se recalcula solo cuando cambia la lista de paradas o la ubicación del
+  // chofer (no en cada render) — reconstruir el HTML entero recarga el
+  // WebView, no vale la pena hacerlo por cambios que no tocan pines (ej. un
+  // timer de arriba).
+  const html = React.useMemo(() => buildHtml(stops, userLocation), [stops, userLocation]);
 
   return (
     <View style={{ height, borderRadius: 12, overflow: "hidden" }}>
