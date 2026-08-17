@@ -12,7 +12,7 @@ import {
 } from "@/lib/api/client";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { ErrorState, TableSkeleton } from "@/components/states";
 import { useToast } from "@/components/ui/toast";
 import { RouteCard } from "./route-card";
@@ -163,55 +163,34 @@ export default function RuteoPage() {
     );
   }
 
+  const hasRoutes = !!routeList && routeList.length > 0;
+
   return (
     <div className="-m-4 flex h-[calc(100vh-2rem)] flex-col gap-0 sm:-m-6 sm:h-[calc(100vh-3rem)]">
-      <div className="px-4 pt-4 sm:px-6 sm:pt-6">
-        <PageHeader
-          title="Ruteo"
-          description={`Operación ${operation.operationDate} · propone el algoritmo, dispone el dispatcher (§8)`}
-        />
+      <div className="flex items-center justify-between px-4 pt-4 sm:px-6 sm:pt-6">
+        <PageHeader title="Ruteo" description={`Op. ${operation.operationDate}`} />
+        <div className="flex items-center gap-3">
+          <span className="font-data text-text-muted hidden text-xs sm:inline">
+            {freePackageCount} sin ruta
+          </span>
+          <Button
+            onClick={() => void handleGenerate()}
+            disabled={generating || freePackageCount === 0}
+            size="sm"
+          >
+            {generating ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <RouteIcon className="size-4" />
+            )}
+            {hasRoutes ? "Agregar ruta" : "Generar propuesta"}
+          </Button>
+        </div>
       </div>
 
-      {(() => {
-        const hasRoutes = !!routeList && routeList.length > 0;
-        return (
-          <div className="px-4 pt-4 sm:px-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  {hasRoutes ? "Agregar ruta" : "Generar propuesta de rutas"}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3">
-                <p className="text-text-muted text-sm">
-                  {hasRoutes
-                    ? "Arma una ruta más con los paquetes que quedaron sin asignar (llegaron o se geocodificaron después de la primera tanda) — no toca las rutas que ya existen."
-                    : "Cluster geográfico capacitado + secuenciación por calle real sobre los paquetes GEOCODIFICADO de esta operación (§8). Necesita al menos un vehículo AVAILABLE con chofer asignado."}
-                </p>
-                <p className="font-data text-text-muted text-xs">
-                  {freePackageCount} paquete(s) geocodificado(s) sin ruta todavía
-                </p>
-                <Button
-                  onClick={() => void handleGenerate()}
-                  disabled={generating || freePackageCount === 0}
-                  className="w-fit"
-                >
-                  {generating ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <RouteIcon className="size-4" />
-                  )}
-                  {hasRoutes ? "Agregar ruta" : "Generar propuesta"}
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        );
-      })()}
-
       {routeList && routeList.length > 0 && (
-        <div className="mt-4 grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] lg:grid-cols-[320px_1fr]">
-          <div className="border-border bg-surface flex min-h-0 flex-col gap-2 overflow-y-auto border-r p-3">
+        <div className="mt-3 grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] lg:grid-cols-[380px_1fr]">
+          <div className="border-border bg-surface flex min-h-0 flex-col gap-3 overflow-y-auto border-r p-3">
             {routeList.map((route) => (
               <RouteCard
                 key={route.id}

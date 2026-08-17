@@ -92,16 +92,19 @@ export default function MetricasPage() {
         const from = new Date(to);
         from.setDate(from.getDate() - RANGE_DAYS[range]);
         from.setUTCHours(0, 0, 0, 0);
-        const [dash, metric, rec] = await Promise.all([
+        const [dashResult, metricResult, recResult] = await Promise.allSettled([
           api.get<OperationsDashboard>("/api/operations/dashboard"),
           api.get<DeliveryMetrics>(
             `/api/metrics/delivery?from=${from.toISOString()}&to=${to.toISOString()}`,
           ),
           api.get<DayReconciliation>("/api/operations/day-reconciliation"),
         ]);
-        setDashboard(dash);
-        setMetrics(metric);
-        setRecon(rec);
+        if (dashResult.status === "fulfilled") setDashboard(dashResult.value);
+        if (metricResult.status === "fulfilled") setMetrics(metricResult.value);
+        if (recResult.status === "fulfilled") setRecon(recResult.value);
+        if (dashResult.status === "rejected" && metricResult.status === "rejected") {
+          throw dashResult.reason;
+        }
         setStatus("ready");
       } catch (err) {
         if (!silent) {

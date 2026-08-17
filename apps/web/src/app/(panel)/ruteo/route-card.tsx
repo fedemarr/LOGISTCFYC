@@ -1,7 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2, Loader2, Printer, QrCode } from "lucide-react";
+import {
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  MapPin,
+  Printer,
+  QrCode,
+  Truck,
+} from "lucide-react";
 import QRCode from "qrcode";
 import {
   api,
@@ -12,24 +21,17 @@ import {
 } from "@/lib/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  DialogContent,
-  DialogDescription,
-  DialogRoot,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
 function formatKm(distanceM: number | null): string {
-  if (distanceM == null) return "—";
+  if (distanceM == null) return "\u2014";
   return (distanceM / 1000).toFixed(1);
 }
 
 function formatDuration(durationS: number | null): string {
-  if (durationS == null) return "—";
+  if (durationS == null) return "\u2014";
   const totalMin = Math.round(durationS / 60);
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
@@ -48,7 +50,6 @@ const STATUS_VARIANT: Record<RouteItem["status"], "neutral" | "info" | "success"
   CANCELLED: "neutral",
 };
 
-/** Verde <85%, ámbar 85-100%, rojo >100% (PROMPT-FRONTEND-V2 §6.1). */
 function capacityColor(pct: number): string {
   if (pct > 100) return "var(--danger)";
   if (pct > 85) return "var(--warning)";
@@ -76,13 +77,9 @@ export function RouteCard({
   const [busy, setBusy] = React.useState(false);
   const [drivers, setDrivers] = React.useState<DriverItem[]>([]);
   const [routeQrDataUrl, setRouteQrDataUrl] = React.useState<string | null>(null);
-  const [qrDialogOpen, setQrDialogOpen] = React.useState(false);
+  const [showQr, setShowQr] = React.useState(false);
+  const [stopsExpanded, setStopsExpanded] = React.useState(false);
   const canAdjust = route.status === "DRAFT" || route.status === "PROPOSED";
-  // El contenedor se puede asignar/cambiar hasta APPROVED (§9.2/§9.3) —
-  // una vez que el chofer arrancó custodia (ASSIGNED en adelante) el
-  // contenedor físico ya está en la calle, `assignRouteContainer` lo
-  // rechaza server-side igual, esto solo evita mostrar el control cuando
-  // ya no sirve para nada.
   const canAssignContainer =
     route.status === "DRAFT" ||
     route.status === "PROPOSED" ||
@@ -91,6 +88,7 @@ export function RouteCard({
   const pct = route.capacityPackages
     ? Math.round((route.stopCount / route.capacityPackages) * 100)
     : null;
+  const stopCount = detail?.stops.length ?? route.stopCount;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -99,7 +97,7 @@ export function RouteCard({
         const page = await api.get<{ items: DriverItem[] }>("/api/drivers");
         if (!cancelled) setDrivers(page.items);
       } catch {
-        // no bloquea la tarjeta — sin esto solo no se puede cambiar chofer
+        // no bloquea la tarjeta
       }
     })();
     return () => {
@@ -128,15 +126,15 @@ export function RouteCard({
     }
   }
 
-  async function openRouteQr() {
+  async function loadQr() {
     try {
       const result = await api.get<{ payload: string }>(`/api/routes/${route.id}/qr`);
       setRouteQrDataUrl(
-        await QRCode.toDataURL(result.payload, { width: 240, margin: 1 }),
+        await QRCode.toDataURL(result.payload, { width: 200, margin: 1 }),
       );
     } catch (err) {
       toast({
-        title: err instanceof Error ? err.message : "No se pudo generar el QR de la ruta",
+        title: err instanceof Error ? err.message : "No se pudo generar el QR",
         variant: "error",
       });
     }
@@ -182,7 +180,7 @@ export function RouteCard({
     try {
       await api.post(`/api/routes/${route.id}/approve`);
       toast({
-        title: `Ruta ${route.routeNumber} aprobada — bultos congelados`,
+        title: `Ruta ${String(route.routeNumber).padStart(3, "0")} aprobada`,
         variant: "success",
       });
       onChanged();
@@ -196,217 +194,260 @@ export function RouteCard({
     }
   }
 
+  function toggleQr() {
+    const next = !showQr;
+    setShowQr(next);
+    if (next && !routeQrDataUrl) void loadQr();
+  }
+
   return (
     <div
       className={cn(
-        "bg-surface-2 border-border relative overflow-hidden rounded-[var(--radius-md)] border py-3 pl-[18px] pr-3 transition-all",
-        hovered && "border-border-2",
+        "bg-surface-2 border-border relative overflow-hidden rounded-lg border transition-all",
+        hovered && "border-border-2 shadow-md",
       )}
       onMouseEnter={() => onHoverChange(route.id)}
       onMouseLeave={() => onHoverChange(null)}
     >
       <span className="spine" style={{ background: color }} aria-hidden />
 
-      <div className="mb-2 flex items-center justify-between">
-        <span className="font-data text-sm font-bold tracking-wide">
-          RUTA {String(route.routeNumber).padStart(3, "0")}
+      <div className="flex items-center justify-between px-4 pb-2 pt-3">
+        <div className="flex items-center gap-2.5">
+          <span className="font-data text-base font-bold tracking-wide" style={{ color }}>
+            {String(route.routeNumber).padStart(3, "0")}
+          </span>
+          <Badge variant={STATUS_VARIANT[route.status]}>{route.status}</Badge>
+        </div>
+        <span className="font-data text-text-muted text-xs">
+          {stopCount} {stopCount === 1 ? "parada" : "paradas"}
         </span>
-        <Badge variant={STATUS_VARIANT[route.status]}>{route.status}</Badge>
       </div>
 
-      <div className="mb-2.5 flex items-center gap-1.5 text-sm">
-        <span className="bg-surface-3 text-text-muted grid size-5 shrink-0 place-items-center rounded-full text-[9px] font-bold">
-          {route.driverName
-            ? route.driverName
-                .split(" ")
-                .map((w) => w[0]?.toUpperCase())
-                .slice(0, 2)
-                .join("")
-            : "—"}
-        </span>
-        {route.driverName ?? <span className="text-status-warning">Sin asignar</span>}
-        {route.vehiclePlate && (
-          <span className="font-data text-text-muted-2 text-xs">
-            · {route.vehiclePlate}
-          </span>
+      <div className="border-border mx-4 border-t border-dashed" />
+      <div className="px-4 py-2.5">
+        {canAssignContainer ? (
+          <div className="flex items-center gap-2">
+            <Truck className="text-text-muted size-4 shrink-0" />
+            <Select
+              aria-label="Asignar chofer"
+              className="w-full"
+              value={route.assignedDriverId ?? ""}
+              disabled={busy}
+              onChange={(e) => void handleAssignDriver(e.target.value)}
+            >
+              <option value="">Sin chofer asignado</option>
+              {drivers.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.fullName}
+                </option>
+              ))}
+            </Select>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 text-sm">
+            <Truck className="text-text-muted size-4 shrink-0" />
+            <span className="truncate">
+              {route.driverName ?? (
+                <span className="text-status-warning">Sin asignar</span>
+              )}
+            </span>
+            {route.vehiclePlate && (
+              <span className="font-data text-text-muted-2 ml-auto text-xs">
+                {route.vehiclePlate}
+              </span>
+            )}
+          </div>
         )}
       </div>
 
-      {canAssignContainer ? (
-        <div className="mb-2.5 flex items-center gap-2 text-sm">
-          <span className="text-text-muted shrink-0">Contenedor</span>
-          <Select
-            aria-label="Asignar contenedor"
-            className="w-full"
-            value={route.containerId ?? ""}
-            disabled={busy}
-            onChange={(e) => void handleAssignContainer(e.target.value)}
-          >
-            <option value="">Sin asignar</option>
-            {containers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.code}
-              </option>
-            ))}
-          </Select>
-        </div>
-      ) : (
-        route.containerCode && (
-          <div className="text-text-muted mb-2.5 text-sm">
-            Contenedor: <span className="font-data">{route.containerCode}</span>
+      {canAssignContainer && (
+        <>
+          <div className="border-border mx-4 border-t border-dashed" />
+          <div className="px-4 py-2.5">
+            <div className="flex items-center gap-2">
+              <span className="text-text-muted size-4 shrink-0 text-center text-xs">
+                C
+              </span>
+              <Select
+                aria-label="Asignar contenedor"
+                className="w-full"
+                value={route.containerId ?? ""}
+                disabled={busy}
+                onChange={(e) => void handleAssignContainer(e.target.value)}
+              >
+                <option value="">Sin contenedor</option>
+                {containers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.code}
+                  </option>
+                ))}
+              </Select>
+            </div>
           </div>
-        )
+        </>
+      )}
+      {!canAssignContainer && route.containerCode && (
+        <>
+          <div className="border-border mx-4 border-t border-dashed" />
+          <div className="px-4 py-2.5">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-text-muted size-4 shrink-0 text-center text-xs">
+                C
+              </span>
+              <span className="font-data">{route.containerCode}</span>
+            </div>
+          </div>
+        </>
       )}
 
-      {canAssignContainer ? (
-        <div className="mb-2.5 flex items-center gap-2 text-sm">
-          <span className="text-text-muted shrink-0">Chofer</span>
-          <Select
-            aria-label="Asignar chofer"
-            className="w-full"
-            value={route.assignedDriverId ?? ""}
-            disabled={busy}
-            onChange={(e) => void handleAssignDriver(e.target.value)}
-          >
-            <option value="">Sin asignar</option>
-            {drivers.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.fullName}
-              </option>
-            ))}
-          </Select>
+      <div className="border-border mx-4 border-t border-dashed" />
+      <div className="px-4 py-3">
+        <div className="mb-2 flex gap-5">
+          <Stat value={route.stopCount} label="Bultos" />
+          <Stat value={formatKm(route.plannedDistanceM)} label="km" />
+          <Stat value={formatDuration(route.plannedDurationS)} label="Tiempo" />
         </div>
-      ) : (
-        route.driverName && (
-          <div className="text-text-muted mb-2.5 text-sm">
-            Chofer: <span className="font-data">{route.driverName}</span>
+        {pct != null && (
+          <div className="flex items-center gap-2">
+            <div className="bg-surface h-[5px] flex-1 overflow-hidden rounded-full">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${Math.min(pct, 100)}%`,
+                  background: capacityColor(pct),
+                }}
+              />
+            </div>
+            <span className="font-data text-text-muted min-w-8 text-right text-[11px]">
+              {pct}%
+            </span>
           </div>
-        )
-      )}
-
-      <div className="mb-2.5 flex gap-3.5">
-        <Stat value={route.stopCount} label="Bultos" />
-        <Stat value={formatKm(route.plannedDistanceM)} label="km" />
-        <Stat value={formatDuration(route.plannedDurationS)} label="Estimado" />
+        )}
       </div>
 
-      {pct != null && (
-        <div className="mb-2.5 flex items-center gap-2">
-          <div className="bg-surface h-[5px] flex-1 overflow-hidden rounded-full">
-            <div
-              className="h-full rounded-full transition-all"
-              style={{ width: `${Math.min(pct, 100)}%`, background: capacityColor(pct) }}
-            />
-          </div>
-          <span className="font-data text-text-muted min-w-8 text-right text-[11px]">
-            {pct}%
-          </span>
-        </div>
-      )}
-
-      {/* Acciones ARRIBA de la lista de paradas, a propósito: con muchas
-          paradas el panel de rutas puede requerir scroll para llegar al
-          final, y "Aprobar"/"Imprimir etiquetas" son la acción principal
-          de la tarjeta — no deberían depender de scrollear hasta el
-          fondo para encontrarlas. */}
-      <div className="mb-2.5 flex gap-2">
+      <div className="border-border mx-4 border-t border-dashed" />
+      <div className="flex flex-wrap gap-2 px-4 py-3">
         {canAdjust && (
-          <Button onClick={() => void handleApprove()} disabled={busy} size="sm">
+          <Button onClick={() => void handleApprove()} disabled={busy}>
             {busy ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (
               <CheckCircle2 className="size-4" />
             )}
-            Aprobar
+            Activar ruta
           </Button>
         )}
         {route.status === "APPROVED" && (
-          <Button
-            render={
-              <a
-                href={`/api/routes/${route.id}/labels?format=thermal`}
-                target="_blank"
-                rel="noreferrer"
-              />
-            }
-            variant="outline"
-            size="sm"
-          >
-            <Printer className="size-4" />
-            Imprimir etiquetas
-          </Button>
-        )}
-        <DialogRoot
-          open={qrDialogOpen}
-          onOpenChange={(v) => {
-            setQrDialogOpen(v);
-            if (v) void openRouteQr();
-          }}
-        >
-          <DialogTrigger
-            render={
-              <Button variant="outline" size="sm">
-                <QrCode className="size-4" />
-                QR ruta
-              </Button>
-            }
-          />
-          <DialogContent className="max-w-xs">
-            <DialogTitle>Ruta {String(route.routeNumber).padStart(3, "0")}</DialogTitle>
-            <DialogDescription>
-              Escaneá desde la app del chofer: se abre la custodia con el conteo de esta
-              ruta (§9.3 + FASE A). El QR codifica solo la ruta, el detalle (bultos, zona,
-              hoja) se resuelve desde el servidor.
-            </DialogDescription>
-            <div className="flex flex-col items-center gap-2 py-2">
-              {routeQrDataUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element -- data URL de QR, next/image no lo optimiza
-                <img
-                  src={routeQrDataUrl}
-                  alt={`QR de la ruta ${route.routeNumber}`}
-                  className="size-60 rounded-md border"
+          <>
+            <Button
+              render={
+                <a
+                  href={`/api/routes/${route.id}/labels?format=thermal`}
+                  target="_blank"
+                  rel="noreferrer"
                 />
-              ) : (
-                <Loader2 className="size-8 animate-spin" />
-              )}
-            </div>
-          </DialogContent>
-        </DialogRoot>
+              }
+              variant="outline"
+            >
+              <Printer className="size-4" />
+              Etiquetas
+            </Button>
+            <Button variant="outline" onClick={toggleQr}>
+              <QrCode className="size-4" />
+              QR ruta
+            </Button>
+          </>
+        )}
       </div>
 
-      <ul className="mb-2.5 flex flex-col gap-1.5">
-        {detail?.stops.map((stop) => (
-          <li
-            key={stop.stopId}
-            className="border-border flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-sm"
-          >
-            <div className="min-w-0">
-              <div className="truncate font-medium">
-                {stop.sequence + 1}. {stop.rawAddressText ?? "(sin dirección)"}
+      {showQr && route.status === "APPROVED" && (
+        <>
+          <div className="border-border mx-4 border-t" />
+          <div className="flex flex-col items-center gap-2 px-4 py-4">
+            <p className="text-text-muted text-center text-xs">
+              El chofer escanea este QR desde la app para abrir la custodia
+            </p>
+            {routeQrDataUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- data URL de QR
+              <img
+                src={routeQrDataUrl}
+                alt={`QR de la ruta ${route.routeNumber}`}
+                className="size-48 rounded-lg border"
+              />
+            ) : (
+              <div className="flex size-48 items-center justify-center rounded-lg border">
+                <Loader2 className="size-6 animate-spin" />
               </div>
-              <div className="text-text-muted font-data truncate text-xs">
-                {stop.recipientName ?? "—"} · #{stop.internalCode}
-              </div>
-            </div>
-            {canAdjust && allRoutes.length > 1 && (
-              <Select
-                aria-label="Mover a otra ruta"
-                className="w-32 shrink-0"
-                value={route.id}
-                disabled={busy}
-                onChange={(e) => void handleReassign(stop.packageId, e.target.value)}
-              >
-                {allRoutes.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    Ruta {r.routeNumber}
-                  </option>
-                ))}
-              </Select>
             )}
-          </li>
-        ))}
-        {!detail && <li className="text-text-muted text-sm">Cargando paradas…</li>}
-      </ul>
+            <p className="font-data text-text-muted-2 text-center text-[11px]">
+              FYC-ROUTE-{route.id.slice(0, 8)}...
+            </p>
+          </div>
+        </>
+      )}
+
+      {detail && detail.stops.length > 0 && (
+        <>
+          <button
+            type="button"
+            className="border-border flex w-full items-center justify-between border-t px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--surface)]"
+            onClick={() => setStopsExpanded(!stopsExpanded)}
+          >
+            <span className="flex items-center gap-1.5">
+              <MapPin className="text-text-muted size-3.5" />
+              {detail.stops.length} {detail.stops.length === 1 ? "parada" : "paradas"}
+            </span>
+            {stopsExpanded ? (
+              <ChevronUp className="text-text-muted size-4" />
+            ) : (
+              <ChevronDown className="text-text-muted size-4" />
+            )}
+          </button>
+          {stopsExpanded && (
+            <div className="border-border border-t">
+              <ul className="flex flex-col">
+                {detail.stops.map((stop) => (
+                  <li
+                    key={stop.stopId}
+                    className="border-border flex items-center justify-between gap-2 border-b px-4 py-2 text-sm last:border-b-0"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">
+                        {stop.sequence + 1}. {stop.rawAddressText ?? "(sin direccion)"}
+                      </div>
+                      <div className="text-text-muted font-data truncate text-xs">
+                        {stop.recipientName ?? "\u2014"} � #{stop.internalCode}
+                      </div>
+                    </div>
+                    {canAdjust && allRoutes.length > 1 && (
+                      <Select
+                        aria-label="Mover a otra ruta"
+                        className="w-32 shrink-0"
+                        value={route.id}
+                        disabled={busy}
+                        onChange={(e) =>
+                          void handleReassign(stop.packageId, e.target.value)
+                        }
+                      >
+                        {allRoutes.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            Ruta {r.routeNumber}
+                          </option>
+                        ))}
+                      </Select>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+      {!detail && (
+        <div className="border-border border-t px-4 py-2.5">
+          <span className="text-text-muted text-xs">Cargando paradas...</span>
+        </div>
+      )}
     </div>
   );
 }

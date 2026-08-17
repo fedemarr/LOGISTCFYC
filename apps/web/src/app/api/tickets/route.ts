@@ -57,12 +57,15 @@ export async function GET(request: Request): Promise<Response> {
       search: query.search,
       status: query.status as never,
     });
-    return jsonOk(result.items, {
-      page,
-      pageSize,
-      total: result.total,
-      pages: Math.max(1, Math.ceil(result.total / pageSize)),
-    });
+    return jsonOk(
+      { items: result.items },
+      {
+        page,
+        pageSize,
+        total: result.total,
+        pages: Math.max(1, Math.ceil(result.total / pageSize)),
+      },
+    );
   } catch (err) {
     return jsonError(toAppError(err));
   }
