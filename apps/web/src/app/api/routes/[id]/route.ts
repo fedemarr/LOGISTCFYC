@@ -11,12 +11,13 @@ import {
 } from "@/lib/api";
 import { db } from "@/lib/db";
 import { knownAddresses, packages, routes, routeStops, users } from "@/lib/db/schema";
-import { assignRouteContainer } from "@/lib/services/custody";
+import { assignRouteContainer, assignRouteDriver } from "@/lib/services/custody";
 
 const paramsSchema = z.object({ id: z.string().uuid("id de ruta inválido") });
 
 const patchBodySchema = z.object({
   containerId: z.string().uuid("id de contenedor inválido").nullable().optional(),
+  driverId: z.string().uuid("id de chofer inválido").nullable().optional(),
 });
 
 /** GET /api/routes/:id — detalle de una ruta con sus paradas en orden (§7: `route_stops.sequence`). */
@@ -83,10 +84,10 @@ export async function GET(
 }
 
 /**
- * PATCH /api/routes/:id — asigna (o desasigna) el contenedor físico de la
- * ruta (§9.2/§9.3). Solo antes de la custodia (DRAFT/PROPOSED/APPROVED) y
- * por admin/dispatcher/warehouse — una vez que el chofer tomó custodia, el
- * contenedor no se puede cambiar.
+ * PATCH /api/routes/:id — asigna (o desasigna) el contenedor físico y/o el
+ * chofer de la ruta (§9.2/§9.3 + FASE A). Solo antes de la custodia
+ * (DRAFT/PROPOSED/APPROVED) y por admin/dispatcher/warehouse — una vez que
+ * el chofer tomó custodia, ni contenedor ni chofer se pueden cambiar.
  */
 export async function PATCH(
   request: Request,
@@ -97,12 +98,20 @@ export async function PATCH(
     const { id: routeId } = await parseParams(paramsSchema, params);
     const body = await parseBody(patchBodySchema, request);
 
-    const result = await assignRouteContainer(
-      ctx.orgId,
-      routeId,
-      ctx,
-      body.containerId ?? null,
-    );
+    const result: { containerId?: string | null; driverId?: string | null } = {};
+    if (body.containerId !== undefined) {
+      const assigned = await assignRouteContainer(
+        ctx.orgId,
+        routeId,
+        ctx,
+        body.containerId,
+      );
+      result.containerId = assigned.containerId;
+    }
+    if (body.driverId !== undefined) {
+      const assigned = await assignRouteDriver(ctx.orgId, routeId, ctx, body.driverId);
+      result.driverId = assigned.driverId;
+    }
     return jsonOk(result);
   } catch (err) {
     return jsonError(toAppError(err));

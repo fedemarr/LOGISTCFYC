@@ -165,6 +165,13 @@ export interface ContainerItem {
   createdAt: string;
 }
 
+/** Chofer activo del org (FASE A: selector en Ruteo, GET /api/drivers). */
+export interface DriverItem {
+  id: string;
+  fullName: string;
+  email: string;
+}
+
 // ── Ingesta (FASE 5) ─────────────────────────────────────────────────────
 
 export type OperationStatus = "OPEN" | "CLOSED";

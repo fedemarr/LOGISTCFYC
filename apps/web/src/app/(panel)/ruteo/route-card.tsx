@@ -1,15 +1,24 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2, Loader2, Printer } from "lucide-react";
+import { CheckCircle2, Loader2, Printer, QrCode } from "lucide-react";
+import QRCode from "qrcode";
 import {
   api,
   type ContainerItem,
+  type DriverItem,
   type RouteDetail,
   type RouteItem,
 } from "@/lib/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DialogContent,
+  DialogDescription,
+  DialogRoot,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -65,6 +74,9 @@ export function RouteCard({
 }) {
   const { toast } = useToast();
   const [busy, setBusy] = React.useState(false);
+  const [drivers, setDrivers] = React.useState<DriverItem[]>([]);
+  const [routeQrDataUrl, setRouteQrDataUrl] = React.useState<string | null>(null);
+  const [qrDialogOpen, setQrDialogOpen] = React.useState(false);
   const canAdjust = route.status === "DRAFT" || route.status === "PROPOSED";
   // El contenedor se puede asignar/cambiar hasta APPROVED (§9.2/§9.3) —
   // una vez que el chofer arrancó custodia (ASSIGNED en adelante) el
@@ -79,6 +91,56 @@ export function RouteCard({
   const pct = route.capacityPackages
     ? Math.round((route.stopCount / route.capacityPackages) * 100)
     : null;
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const page = await api.get<{ items: DriverItem[] }>("/api/drivers");
+        if (!cancelled) setDrivers(page.items);
+      } catch {
+        // no bloquea la tarjeta — sin esto solo no se puede cambiar chofer
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleAssignDriver(driverId: string) {
+    setBusy(true);
+    try {
+      await api.patch(`/api/routes/${route.id}`, {
+        driverId: driverId === "" ? null : driverId,
+      });
+      toast({
+        title: driverId === "" ? "Chofer desasignado" : "Chofer habilitado para la ruta",
+        variant: "success",
+      });
+      onChanged();
+    } catch (err) {
+      toast({
+        title: err instanceof Error ? err.message : "No se pudo asignar el chofer",
+        variant: "error",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openRouteQr() {
+    try {
+      const result = await api.get<{ payload: string }>(`/api/routes/${route.id}/qr`);
+      setRouteQrDataUrl(
+        await QRCode.toDataURL(result.payload, { width: 240, margin: 1 }),
+      );
+    } catch (err) {
+      toast({
+        title: err instanceof Error ? err.message : "No se pudo generar el QR de la ruta",
+        variant: "error",
+      });
+    }
+  }
 
   async function handleAssignContainer(containerId: string) {
     setBusy(true);
@@ -196,6 +258,32 @@ export function RouteCard({
         )
       )}
 
+      {canAssignContainer ? (
+        <div className="mb-2.5 flex items-center gap-2 text-sm">
+          <span className="text-text-muted shrink-0">Chofer</span>
+          <Select
+            aria-label="Asignar chofer"
+            className="w-full"
+            value={route.assignedDriverId ?? ""}
+            disabled={busy}
+            onChange={(e) => void handleAssignDriver(e.target.value)}
+          >
+            <option value="">Sin asignar</option>
+            {drivers.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.fullName}
+              </option>
+            ))}
+          </Select>
+        </div>
+      ) : (
+        route.driverName && (
+          <div className="text-text-muted mb-2.5 text-sm">
+            Chofer: <span className="font-data">{route.driverName}</span>
+          </div>
+        )
+      )}
+
       <div className="mb-2.5 flex gap-3.5">
         <Stat value={route.stopCount} label="Bultos" />
         <Stat value={formatKm(route.plannedDistanceM)} label="km" />
@@ -248,6 +336,42 @@ export function RouteCard({
             Imprimir etiquetas
           </Button>
         )}
+        <DialogRoot
+          open={qrDialogOpen}
+          onOpenChange={(v) => {
+            setQrDialogOpen(v);
+            if (v) void openRouteQr();
+          }}
+        >
+          <DialogTrigger
+            render={
+              <Button variant="outline" size="sm">
+                <QrCode className="size-4" />
+                QR ruta
+              </Button>
+            }
+          />
+          <DialogContent className="max-w-xs">
+            <DialogTitle>Ruta {String(route.routeNumber).padStart(3, "0")}</DialogTitle>
+            <DialogDescription>
+              Escaneá desde la app del chofer: se abre la custodia con el conteo de esta
+              ruta (§9.3 + FASE A). El QR codifica solo la ruta, el detalle (bultos, zona,
+              hoja) se resuelve desde el servidor.
+            </DialogDescription>
+            <div className="flex flex-col items-center gap-2 py-2">
+              {routeQrDataUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- data URL de QR, next/image no lo optimiza
+                <img
+                  src={routeQrDataUrl}
+                  alt={`QR de la ruta ${route.routeNumber}`}
+                  className="size-60 rounded-md border"
+                />
+              ) : (
+                <Loader2 className="size-8 animate-spin" />
+              )}
+            </div>
+          </DialogContent>
+        </DialogRoot>
       </div>
 
       <ul className="mb-2.5 flex flex-col gap-1.5">

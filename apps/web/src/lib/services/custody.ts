@@ -47,6 +47,8 @@ import {
   packageScans,
   routes,
   routeStops,
+  userRoles,
+  users,
   vehicles,
 } from "@/lib/db/schema";
 import { ACTIVE_ROUTE_STATUSES } from "./driver";
@@ -364,15 +366,19 @@ export async function getDriverCustodyState(
 }
 
 export interface StartCustodyInput {
-  containerCode: string;
+  /** QR de ruta (`FYC-ROUTE-...`, FASE A): abre la custodia sin escanear contenedor. */
+  routeId?: string;
+  /** QR/código del contenedor (path clásico §9.3): debe ser el asignado a la ruta. */
+  containerCode?: string;
   lat?: number;
   lng?: number;
 }
 
 /**
- * Paso 1 — el chofer escanea el QR/código del contenedor asignado a su ruta
- * y se abre el acta de custodia (aún sin conteo). Idempotente: si ya hay
- * acta abierta para la ruta, devuelve el estado actual sin crear otra.
+ * Paso 1 — el chofer escanea el QR de la RUTA (FASE A) o el QR/código del
+ * contenedor asignado a su ruta (§9.3) y se abre el acta de custodia (aún
+ * sin conteo). Idempotente: si ya hay acta abierta para la ruta, devuelve
+ * el estado actual sin crear otra.
  */
 export async function startCustody(
   orgId: string,
@@ -385,60 +391,67 @@ export async function startCustody(
       "no tenés una ruta aprobada para tomar custodia — tu ruta ya está en otro estado",
     );
   }
+  if (input.routeId && route.id !== input.routeId) {
+    throw Errors.validation("el QR escaneado no es de la ruta asignada a tu usuario");
+  }
 
   const existing = await getOpenCustody(orgId, route.id);
   if (existing) return buildCustodyState(orgId, driverId, route);
 
-  if (!route.containerId) {
-    throw Errors.validation(
-      "la ruta no tiene contenedor asignado — pedile al depósito que lo asigne antes de escanear",
-    );
-  }
   if (!route.vehicleId) {
     throw Errors.validation("la ruta no tiene vehículo asignado");
   }
 
-  const [container] = await db
-    .select()
-    .from(containers)
-    .where(
-      and(
-        eq(containers.orgId, orgId),
-        eq(containers.isActive, true),
-        isNull(containers.deletedAt),
-        or(
-          eq(containers.qrPayload, input.containerCode),
-          eq(containers.code, input.containerCode),
-        ),
-      ),
-    );
-  if (!container) {
-    throw Errors.notFound(
-      "contenedor no encontrado — revisá que el QR/código sea de FYC",
-    );
-  }
-  if (container.id !== route.containerId) {
-    throw Errors.validation(
-      `el contenedor escaneado (${container.code}) no es el asignado a tu ruta`,
-    );
-  }
+  // Con el QR de ruta el acta es por ruta (sin escanear el contenedor
+  // físico, que puede no estar impreso aún); con el QR de contenedor se
+  // valida que el escaneado sea exactamente el asignado (§9.3).
+  let container: typeof containers.$inferSelect | null = null;
+  if (input.containerCode) {
+    container =
+      (await db
+        .select()
+        .from(containers)
+        .where(
+          and(
+            eq(containers.orgId, orgId),
+            eq(containers.isActive, true),
+            isNull(containers.deletedAt),
+            or(
+              eq(containers.qrPayload, input.containerCode),
+              eq(containers.code, input.containerCode),
+            ),
+          ),
+        )
+        .limit(1)
+        .then((rows) => rows[0] ?? null)) ?? null;
+    if (!container) {
+      throw Errors.notFound(
+        "contenedor no encontrado — revisá que el QR/código sea de FYC",
+      );
+    }
+    if (container.id !== route.containerId) {
+      throw Errors.validation(
+        `el contenedor escaneado (${container.code}) no es el asignado a tu ruta`,
+      );
+    }
 
-  // El contenedor es físico y se custodia de a una ruta a la vez (§9.3).
-  const [busy] = await db
-    .select({ id: custodyTransfers.id })
-    .from(custodyTransfers)
-    .innerJoin(routes, eq(routes.id, custodyTransfers.routeId))
-    .where(
-      and(
-        eq(custodyTransfers.orgId, orgId),
-        eq(custodyTransfers.containerId, container.id),
-        ne(custodyTransfers.routeId, route.id),
-        inArray(routes.status, ACTIVE_ROUTE_STATUSES),
-      ),
-    )
-    .limit(1);
-  if (busy) {
-    throw Errors.conflict("el contenedor ya está en custodia con otra ruta activa");
+    // El contenedor es físico y se custodia de a una ruta a la vez (§9.3).
+    const [busy] = await db
+      .select({ id: custodyTransfers.id })
+      .from(custodyTransfers)
+      .innerJoin(routes, eq(routes.id, custodyTransfers.routeId))
+      .where(
+        and(
+          eq(custodyTransfers.orgId, orgId),
+          eq(custodyTransfers.containerId, container.id),
+          ne(custodyTransfers.routeId, route.id),
+          inArray(routes.status, ACTIVE_ROUTE_STATUSES),
+        ),
+      )
+      .limit(1);
+    if (busy) {
+      throw Errors.conflict("el contenedor ya está en custodia con otra ruta activa");
+    }
   }
 
   const expectedCount = await countRouteStops(orgId, route.id);
@@ -449,7 +462,7 @@ export async function startCustody(
       .values({
         orgId,
         routeId: route.id,
-        containerId: container.id,
+        containerId: container?.id ?? null,
         toUserId: driverId,
         expectedCount,
         method: "COUNT",
@@ -471,7 +484,12 @@ export async function startCustody(
         toStatus: "OPEN",
         lat: input.lat,
         lng: input.lng,
-        metadata: { routeId: route.id, containerId: container.id, expectedCount },
+        metadata: {
+          routeId: route.id,
+          containerId: container?.id ?? null,
+          source: input.containerCode ? "container" : "route_qr",
+          expectedCount,
+        },
       },
       tx,
     );
@@ -1219,6 +1237,80 @@ export async function assignRouteContainer(
   });
 
   return { containerId };
+}
+
+/**
+ * Asigna (o desasigna) el chofer de una ruta — panel web, FASE A del flujo
+ * de escaneo. Antes de la custodia (mismo límite que el contenedor): una
+ * vez ASSIGNED, el chofer ya tomó custodia y no se cambia. El chofer queda
+ * como "habilitado": su app lo ve y aparece en Seguimiento (ver
+ * `monitoring.ts`).
+ */
+export async function assignRouteDriver(
+  orgId: string,
+  routeId: string,
+  actor: { userId: string; roles: readonly Role[] },
+  driverId: string | null,
+): Promise<{ driverId: string | null }> {
+  const [route] = await db
+    .select()
+    .from(routes)
+    .where(and(eq(routes.id, routeId), eq(routes.orgId, orgId)));
+  if (!route) throw Errors.notFound("ruta no encontrada");
+  if (
+    route.status !== "DRAFT" &&
+    route.status !== "PROPOSED" &&
+    route.status !== "APPROVED"
+  ) {
+    throw Errors.conflict(
+      `la ruta está ${route.status} — el chofer ya no se puede cambiar`,
+    );
+  }
+
+  if (driverId) {
+    const idsWithRole = db
+      .select({ userId: userRoles.userId })
+      .from(userRoles)
+      .where(eq(userRoles.role, "driver"));
+    const [driver] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(
+        and(
+          eq(users.id, driverId),
+          eq(users.orgId, orgId),
+          eq(users.isActive, true),
+          isNull(users.deletedAt),
+          inArray(users.id, idsWithRole),
+        ),
+      );
+    if (!driver) {
+      throw Errors.validation("el chofer no existe, está inactivo o no tiene rol driver");
+    }
+  }
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(routes)
+      .set({ assignedDriverId: driverId, updatedAt: new Date() })
+      .where(eq(routes.id, routeId));
+
+    await logDomainEvent(
+      {
+        orgId,
+        entityType: "ROUTE",
+        entityId: route.id,
+        eventType: "ROUTE_DRIVER_ASSIGNED",
+        actorId: actor.userId,
+        actorRole: actor.roles.join(","),
+        fromStatus: route.status,
+        metadata: { driverId },
+      },
+      tx,
+    );
+  });
+
+  return { driverId };
 }
 
 export type { Tx as CustodyTx };

@@ -22,6 +22,7 @@ import {
   users,
   vehicles,
 } from "@/lib/db/schema";
+import { ACTIVE_ROUTE_STATUSES } from "@/lib/services/driver";
 
 const GPS_SILENCE_ALERT_MINUTES = Number(process.env.GPS_SILENCE_ALERT_MINUTES ?? 15);
 const INCIDENT_SLA_SECONDS = Number(process.env.INCIDENT_SLA_SECONDS ?? 600);
@@ -57,7 +58,8 @@ const STOPPED_WINDOW_MIN = 10;
 const BEHIND_SCHEDULE_FACTOR = 1.3;
 
 /**
- * GET /api/operations/live — choferes con ruta IN_TRANSIT + su última
+ * GET /api/operations/live — choferes con ruta ACTIVA (desde ASSIGNED:
+ * desde que el dispatcher habilita al chofer, FASE A) + su última
  * ubicación + alertas computadas. La "última ubicación" se saca con
  * DISTINCT ON (driver_id) sobre `driver_locations` (una query, sin N+1).
  */
@@ -80,7 +82,7 @@ export async function getLiveFleet(orgId: string): Promise<LiveRouteItem[]> {
     .where(
       and(
         eq(routes.orgId, orgId),
-        inArray(routes.status, ["IN_TRANSIT"]),
+        inArray(routes.status, ACTIVE_ROUTE_STATUSES),
         isNull(routes.deletedAt),
       ),
     );
