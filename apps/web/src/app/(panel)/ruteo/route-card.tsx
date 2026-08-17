@@ -223,6 +223,52 @@ export function RouteCard({
         </span>
       </div>
 
+      {/* QR arriba de todo (pedido de Fede): el chofer lo escanea desde la
+          app apenas se aprueba la ruta, sin tener que buscarlo más abajo
+          entre el resto de los controles de la tarjeta. */}
+      {route.status === "APPROVED" && (
+        <>
+          <div className="border-border mx-4 border-t border-dashed" />
+          <div className="px-4 py-2.5">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between rounded-md bg-[var(--surface)] px-3 py-2 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"
+              onClick={toggleQr}
+            >
+              <span className="flex items-center gap-2">
+                <QrCode className="size-4" />
+                Ver QR de ruta
+              </span>
+              <ChevronDown
+                className={cn(
+                  "text-text-muted size-4 transition-transform",
+                  showQr && "rotate-180",
+                )}
+              />
+            </button>
+          </div>
+          {showQr && (
+            <div className="flex flex-col items-center gap-2 px-4 pb-3">
+              <p className="text-text-muted text-center text-xs">
+                El chofer escanea este QR desde la app para abrir la custodia
+              </p>
+              {routeQrDataUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- data URL de QR
+                <img
+                  src={routeQrDataUrl}
+                  alt={`QR de la ruta ${route.routeNumber}`}
+                  className="size-44 rounded-lg border"
+                />
+              ) : (
+                <div className="flex size-44 items-center justify-center rounded-lg border">
+                  <Loader2 className="size-6 animate-spin" />
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
       <div className="border-border mx-4 border-t border-dashed" />
       <div className="px-4 py-2.5">
         {canAssignContainer ? (
@@ -338,53 +384,21 @@ export function RouteCard({
           </Button>
         )}
         {route.status === "APPROVED" && (
-          <>
-            <Button
-              render={
-                <a
-                  href={`/api/routes/${route.id}/labels?format=thermal`}
-                  target="_blank"
-                  rel="noreferrer"
-                />
-              }
-              variant="outline"
-            >
-              <Printer className="size-4" />
-              Etiquetas
-            </Button>
-            <Button variant="outline" onClick={toggleQr}>
-              <QrCode className="size-4" />
-              QR ruta
-            </Button>
-          </>
+          <Button
+            render={
+              <a
+                href={`/api/routes/${route.id}/labels?format=thermal`}
+                target="_blank"
+                rel="noreferrer"
+              />
+            }
+            variant="outline"
+          >
+            <Printer className="size-4" />
+            Etiquetas
+          </Button>
         )}
       </div>
-
-      {showQr && route.status === "APPROVED" && (
-        <>
-          <div className="border-border mx-4 border-t" />
-          <div className="flex flex-col items-center gap-2 px-4 py-4">
-            <p className="text-text-muted text-center text-xs">
-              El chofer escanea este QR desde la app para abrir la custodia
-            </p>
-            {routeQrDataUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element -- data URL de QR
-              <img
-                src={routeQrDataUrl}
-                alt={`QR de la ruta ${route.routeNumber}`}
-                className="size-48 rounded-lg border"
-              />
-            ) : (
-              <div className="flex size-48 items-center justify-center rounded-lg border">
-                <Loader2 className="size-6 animate-spin" />
-              </div>
-            )}
-            <p className="font-data text-text-muted-2 text-center text-[11px]">
-              FYC-ROUTE-{route.id.slice(0, 8)}...
-            </p>
-          </div>
-        </>
-      )}
 
       {detail && detail.stops.length > 0 && (
         <>

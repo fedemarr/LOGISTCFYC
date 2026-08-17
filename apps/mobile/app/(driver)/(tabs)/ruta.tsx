@@ -74,14 +74,37 @@ export default function RutaScreen() {
   useFocusEffect(
     React.useCallback(() => {
       void load();
-      // Punto azul del chofer (FASE A): best-effort, no bloquea la pantalla.
-      void Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      })
-        .then((pos) => {
-          setUserLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        })
-        .catch(() => undefined);
+
+      // Punto azul del chofer, estilo Google Maps (pedido de Fede): pide
+      // el permiso de ubicación apenas entra a esta pantalla si todavía
+      // no lo dio (antes solo intentaba LEER una posición sin pedirlo
+      // nunca — si no estaba ya concedido por otro camino, el punto azul
+      // no aparecía jamás y al usuario tampoco se le preguntaba), y sigue
+      // la posición en vivo mientras la pantalla está en foco, no una
+      // sola lectura estática.
+      let cancelled = false;
+      let subscription: Location.LocationSubscription | null = null;
+
+      void (async () => {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (cancelled || status !== "granted") return;
+
+        subscription = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 5_000,
+            distanceInterval: 15,
+          },
+          (pos) => {
+            setUserLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          },
+        );
+      })().catch(() => undefined);
+
+      return () => {
+        cancelled = true;
+        subscription?.remove();
+      };
     }, [load]),
   );
 
