@@ -1,6 +1,8 @@
 import * as React from "react";
 import {
   ActivityIndicator,
+  AppState,
+  Linking,
   ScrollView,
   Text,
   TouchableOpacity,
@@ -169,9 +171,39 @@ export default function IniciarRutaScreen() {
     setPhase("ready");
   }, []);
 
+  // Automático, sin depender de que el chofer se acuerde de tocar
+  // "Verificar de nuevo" (pedido de Fede): dar el permiso / desactivar la
+  // optimización de batería casi siempre te manda a Ajustes de Android,
+  // AFUERA de la app — cuando volvés, React Navigation no dispara ningún
+  // evento de foco (la pantalla nunca se "salió" de la pila, la app
+  // entera se fue a segundo plano) así que sin esto el checklist se
+  // quedaba mostrando el resultado viejo para siempre, aunque ya
+  // hubieras arreglado todo del lado del dispositivo.
   React.useEffect(() => {
     void measureChecklist().then(applyResult);
+
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active") void measureChecklist().then(applyResult);
+    });
+    return () => sub.remove();
   }, [measureChecklist, applyResult]);
+
+  // Reintento automático cada pocos segundos mientras algo bloqueante
+  // siga sin cumplirse (ej. esperando un fix de GPS más preciso) — así
+  // se pone en verde solo apenas se cumple, sin tocar nada.
+  React.useEffect(() => {
+    if (phase !== "ready" || evaluation?.canStart) return;
+    const interval = setInterval(() => {
+      void measureChecklist().then(applyResult);
+    }, 4_000);
+    return () => clearInterval(interval);
+  }, [phase, evaluation?.canStart, measureChecklist, applyResult]);
+
+  async function handleRequestLocation() {
+    await Location.requestForegroundPermissionsAsync();
+    await Location.requestBackgroundPermissionsAsync();
+    await measureChecklist().then(applyResult);
+  }
 
   async function handleStart() {
     if (!routeId || !evaluation || !attestation) return;
@@ -233,7 +265,18 @@ export default function IniciarRutaScreen() {
       {evaluation && (
         <View style={{ gap: spacing.sm }}>
           {evaluation.items.map((item) => (
-            <ChecklistRow key={item.key} item={item} />
+            <ChecklistRow
+              key={item.key}
+              item={item}
+              onAction={
+                item.key === "location"
+                  ? () => void handleRequestLocation()
+                  : item.key === "batteryOptimization"
+                    ? () => void Linking.openSettings()
+                    : undefined
+              }
+              actionLabel={item.key === "location" ? "Dar permiso" : "Abrir Ajustes"}
+            />
           ))}
           {evaluation.batteryLow && (
             <View style={[cardStyle, { borderColor: colors.warning, borderWidth: 1 }]}>
@@ -250,6 +293,20 @@ export default function IniciarRutaScreen() {
             </View>
           )}
         </View>
+      )}
+
+      {evaluation && !evaluation.canStart && (
+        <Text
+          style={{
+            fontFamily: fonts.sans,
+            fontSize: 12,
+            color: colors.muted,
+            textAlign: "center",
+          }}
+        >
+          Se revisa solo cada pocos segundos y al volver de Ajustes — no hace falta tocar
+          nada.
+        </Text>
       )}
 
       <TouchableOpacity
@@ -283,7 +340,15 @@ export default function IniciarRutaScreen() {
   );
 }
 
-function ChecklistRow({ item }: { item: ChecklistItem }) {
+function ChecklistRow({
+  item,
+  onAction,
+  actionLabel,
+}: {
+  item: ChecklistItem;
+  onAction?: () => void;
+  actionLabel?: string;
+}) {
   return (
     <View
       style={[cardStyle, { flexDirection: "row", alignItems: "center", gap: spacing.md }]}
@@ -312,6 +377,25 @@ function ChecklistRow({ item }: { item: ChecklistItem }) {
           {item.detail}
         </Text>
       </View>
+      {!item.ok && onAction && (
+        <TouchableOpacity
+          onPress={onAction}
+          style={{
+            paddingHorizontal: spacing.md,
+            paddingVertical: spacing.sm,
+            borderRadius: radius.md,
+            backgroundColor: colors.surface3,
+            borderWidth: 1,
+            borderColor: colors.border,
+          }}
+        >
+          <Text
+            style={{ fontFamily: fonts.sansSemibold, fontSize: 13, color: colors.text }}
+          >
+            {actionLabel}
+          </Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
