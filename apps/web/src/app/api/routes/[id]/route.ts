@@ -12,6 +12,7 @@ import {
 import { db } from "@/lib/db";
 import { knownAddresses, packages, routes, routeStops, users } from "@/lib/db/schema";
 import { assignRouteContainer, assignRouteDriver } from "@/lib/services/custody";
+import { deleteRoute } from "@/lib/services/route-planning";
 
 const paramsSchema = z.object({ id: z.string().uuid("id de ruta inválido") });
 
@@ -113,6 +114,26 @@ export async function PATCH(
       result.driverId = assigned.driverId;
     }
     return jsonOk(result);
+  } catch (err) {
+    return jsonError(toAppError(err));
+  }
+}
+
+/**
+ * DELETE /api/routes/:id — borrado lógico de una ruta que todavía no
+ * salió a la calle (pedido de Fede — ver `deleteRoute()` en
+ * `route-planning.ts` para las reglas exactas y por qué no aplica a
+ * cualquier estado).
+ */
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<Response> {
+  try {
+    const ctx = await requireRole(request, ["admin", "dispatcher", "warehouse"]);
+    const { id: routeId } = await parseParams(paramsSchema, params);
+    await deleteRoute(ctx.orgId, routeId, ctx);
+    return jsonOk({ deleted: true });
   } catch (err) {
     return jsonError(toAppError(err));
   }

@@ -22,6 +22,7 @@ import {
   routeStops,
   vehicles,
 } from "@/lib/db/schema";
+import { logDomainEvent } from "./events";
 import { getDistanceMatrix, matrixLookup } from "./routing";
 import { runPackageTransition } from "./state-machine";
 
@@ -531,4 +532,148 @@ export async function approveRoute(
   }
 
   return { routeId, status: "APPROVED", packageCount: stops.length };
+}
+
+/**
+ * ELIMINAR (pedido de Fede, no está en el documento madre como acción
+ * separada): borrado lógico (`deleted_at`, mismo patrón que `packages`)
+ * de una ruta que TODAVÍA no salió a la calle — DRAFT/PROPOSED/APPROVED,
+ * los únicos estados donde sus paquetes están como mucho en ASIGNADO
+ * (nunca CARGADO, que no tiene vuelta atrás en la máquina de estados de
+ * paquete). Libera cada paquete (`route_id = NULL` + de vuelta a
+ * GEOCODIFICADO si estaba ASIGNADO) para que "Agregar ruta" los pueda
+ * volver a rutear — ver ADR de la incremental de generateRouteProposal.
+ *
+ * A propósito NO permite borrar ASSIGNED/LOADING/IN_TRANSIT/COMPLETED:
+ * una vez que hay custodia física de por medio, "eliminar" ya no es una
+ * operación segura — es un caso excepcional que le corresponde a
+ * alguien mirando la situación real, no a un botón.
+ */
+export async function deleteRoute(
+  orgId: string,
+  routeId: string,
+  actor: { userId: string; roles: readonly Role[] },
+): Promise<void> {
+  const [route] = await db
+    .select()
+    .from(routes)
+    .where(
+      and(eq(routes.id, routeId), eq(routes.orgId, orgId), isNull(routes.deletedAt)),
+    );
+  if (!route) throw Errors.notFound("ruta no encontrada");
+  if (
+    route.status !== "DRAFT" &&
+    route.status !== "PROPOSED" &&
+    route.status !== "APPROVED"
+  ) {
+    throw Errors.conflict(
+      `la ruta está ${route.status} — ya tiene custodia o está en curso, no se puede eliminar`,
+    );
+  }
+
+  const stopPackages = await db
+    .select({ id: packages.id, status: packages.status })
+    .from(packages)
+    .where(eq(packages.routeId, routeId));
+
+  for (const p of stopPackages) {
+    if (p.status === "ASIGNADO") {
+      await runPackageTransition({
+        packageId: p.id,
+        toStatus: "GEOCODIFICADO",
+        actorId: actor.userId,
+        actorRoles: actor.roles,
+        metadata: { reason: "route_deleted", routeId },
+      });
+    }
+  }
+  if (stopPackages.length > 0) {
+    await db
+      .update(packages)
+      .set({ routeId: null, bulkNumber: null, updatedAt: new Date() })
+      .where(eq(packages.routeId, routeId));
+  }
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(routes)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(eq(routes.id, routeId));
+    await logDomainEvent(
+      {
+        orgId,
+        entityType: "ROUTE",
+        entityId: routeId,
+        eventType: "ROUTE_DELETED",
+        actorId: actor.userId,
+        actorRole: actor.roles.join(","),
+        fromStatus: route.status,
+        toStatus: route.status,
+        metadata: { freedPackages: stopPackages.length },
+      },
+      tx,
+    );
+  });
+}
+
+/**
+ * FINALIZAR desde el panel (pedido de Fede): mismo efecto que
+ * `finishRoute()` del chofer (`delivery.ts`, disparado por
+ * `ROUTE_FINISHED` del sync) pero gatillado por el dispatcher — para
+ * cuando el chofer ya entregó todo pero su celular no puede cerrar la
+ * ruta (se quedó sin batería, la app no sincronizó, etc.). Solo desde
+ * IN_TRANSIT → COMPLETED, igual que el chofer — no fuerza el estado de
+ * los paquetes individuales, esa es responsabilidad de cada entrega ya
+ * registrada.
+ */
+export async function completeRouteManually(
+  orgId: string,
+  routeId: string,
+  actor: { userId: string; roles: readonly Role[] },
+): Promise<void> {
+  const [route] = await db
+    .select()
+    .from(routes)
+    .where(
+      and(eq(routes.id, routeId), eq(routes.orgId, orgId), isNull(routes.deletedAt)),
+    );
+  if (!route) throw Errors.notFound("ruta no encontrada");
+  if (route.status !== "IN_TRANSIT") {
+    throw Errors.conflict(
+      `la ruta está ${route.status} — solo se puede finalizar en curso`,
+    );
+  }
+
+  const finishedAt = new Date();
+  await db.transaction(async (tx) => {
+    await tx
+      .update(routes)
+      .set({
+        status: "COMPLETED",
+        completedAt: finishedAt,
+        actualDurationS: route.startedAt
+          ? Math.max(
+              0,
+              Math.round((finishedAt.getTime() - route.startedAt.getTime()) / 1000),
+            )
+          : null,
+        updatedAt: finishedAt,
+      })
+      .where(eq(routes.id, routeId));
+    await logDomainEvent(
+      {
+        orgId,
+        entityType: "ROUTE",
+        entityId: routeId,
+        eventType: "ROUTE_FINISHED",
+        actorId: actor.userId,
+        actorRole: actor.roles.join(","),
+        fromStatus: "IN_TRANSIT",
+        toStatus: "COMPLETED",
+        metadata: { finishedBy: "dispatcher" },
+        occurredAt: finishedAt,
+      },
+      tx,
+    );
+  });
 }

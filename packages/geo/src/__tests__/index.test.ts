@@ -125,6 +125,20 @@ describe("clusterPackages", () => {
     expect(only?.pointIds).toHaveLength(10);
   });
 
+  it("un solo punto (sin nadie con quién compararse) NO es outlier — regresión bug real", () => {
+    // Encontrado probando "agregar ruta" con 1 solo paquete libre: sin
+    // otro punto para comparar, `nearestNeighborM` quedaba en `Infinity`
+    // (siempre mayor al umbral) y el único paquete de la ruta se
+    // marcaba como outlier por construcción — ninguna ruta se generaba
+    // nunca para un caso de 1 solo paquete, aunque sea perfectamente
+    // válido rutear un único bulto.
+    const result = clusterPackages([{ id: "solo", ...villaBallester }], {
+      capacities: [10],
+    });
+    expect(result.outlierIds).toHaveLength(0);
+    expect(result.clusters[0]?.pointIds).toEqual(["solo"]);
+  });
+
   it("un umbral de outlier más chico deja pasar puntos que antes eran outliers", () => {
     const points = cloud("VB", villaBallester, 10, 0.02); // dispersión más amplia
     const strict = clusterPackages(points, {

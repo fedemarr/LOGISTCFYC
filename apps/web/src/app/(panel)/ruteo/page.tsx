@@ -166,8 +166,8 @@ export default function RuteoPage() {
   const hasRoutes = !!routeList && routeList.length > 0;
 
   return (
-    <div className="-m-4 flex h-[calc(100dvh-2rem)] flex-col gap-0 sm:-m-6 sm:h-[calc(100dvh-3rem)]">
-      <div className="flex items-center justify-between px-4 pt-4 sm:px-6 sm:pt-6">
+    <div className="-m-4 flex h-[calc(100dvh-2rem)] flex-col sm:-m-6 sm:h-[calc(100dvh-3rem)]">
+      <div className="flex shrink-0 items-center justify-between px-4 pt-4 sm:px-6 sm:pt-6">
         <PageHeader title="Ruteo" description={`Op. ${operation.operationDate}`} />
         <div className="flex items-center gap-3">
           <span className="font-data text-text-muted hidden text-xs sm:inline">
@@ -190,7 +190,7 @@ export default function RuteoPage() {
 
       {routeList && routeList.length > 0 && (
         <div className="mt-3 grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] lg:grid-cols-[380px_1fr]">
-          <div className="border-border bg-surface flex min-h-0 flex-col gap-3 overflow-y-auto border-r p-3">
+          <div className="border-border bg-surface flex min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain border-r p-3">
             {routeList.map((route) => (
               <RouteCard
                 key={route.id}

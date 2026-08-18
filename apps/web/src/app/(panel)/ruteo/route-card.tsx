@@ -5,10 +5,12 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Flag,
   Loader2,
   MapPin,
   Printer,
   QrCode,
+  Trash2,
   Truck,
 } from "lucide-react";
 import QRCode from "qrcode";
@@ -19,6 +21,15 @@ import {
   type RouteDetail,
   type RouteItem,
 } from "@/lib/api/client";
+import {
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogRoot,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -187,6 +198,44 @@ export function RouteCard({
     } catch (err) {
       toast({
         title: err instanceof Error ? err.message : "No se pudo aprobar la ruta",
+        variant: "error",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDelete() {
+    setBusy(true);
+    try {
+      await api.del(`/api/routes/${route.id}`);
+      toast({
+        title: `Ruta ${String(route.routeNumber).padStart(3, "0")} eliminada — sus paquetes quedaron libres para re-rutear`,
+        variant: "success",
+      });
+      onChanged();
+    } catch (err) {
+      toast({
+        title: err instanceof Error ? err.message : "No se pudo eliminar la ruta",
+        variant: "error",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleComplete() {
+    setBusy(true);
+    try {
+      await api.post(`/api/routes/${route.id}/complete`);
+      toast({
+        title: `Ruta ${String(route.routeNumber).padStart(3, "0")} finalizada`,
+        variant: "success",
+      });
+      onChanged();
+    } catch (err) {
+      toast({
+        title: err instanceof Error ? err.message : "No se pudo finalizar la ruta",
         variant: "error",
       });
     } finally {
@@ -398,6 +447,46 @@ export function RouteCard({
             Etiquetas
           </Button>
         )}
+        {route.status === "IN_TRANSIT" && (
+          <Button onClick={() => void handleComplete()} disabled={busy} variant="outline">
+            {busy ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Flag className="size-4" />
+            )}
+            Finalizar
+          </Button>
+        )}
+        {(route.status === "DRAFT" ||
+          route.status === "PROPOSED" ||
+          route.status === "APPROVED") && (
+          <AlertDialogRoot>
+            <AlertDialogTrigger
+              render={
+                <Button variant="outline" disabled={busy}>
+                  <Trash2 className="size-4" />
+                  Eliminar
+                </Button>
+              }
+            />
+            <AlertDialogContent>
+              <AlertDialogTitle>
+                ¿Eliminar la ruta {String(route.routeNumber).padStart(3, "0")}?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                Sus {stopCount} {stopCount === 1 ? "paquete" : "paquetes"} quedan libres
+                sin ruta — podés volver a rutearlos con &quot;Agregar ruta&quot;. Esta
+                acción no se puede deshacer.
+              </AlertDialogDescription>
+              <div className="flex justify-end gap-2">
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction onClick={() => void handleDelete()}>
+                  Eliminar
+                </AlertDialogAction>
+              </div>
+            </AlertDialogContent>
+          </AlertDialogRoot>
+        )}
       </div>
 
       {detail && detail.stops.length > 0 && (
@@ -418,7 +507,7 @@ export function RouteCard({
             )}
           </button>
           {stopsExpanded && (
-            <div className="border-border border-t">
+            <div className="border-border max-h-80 overflow-y-auto overscroll-contain border-t">
               <ul className="flex flex-col">
                 {detail.stops.map((stop) => (
                   <li
@@ -430,7 +519,7 @@ export function RouteCard({
                         {stop.sequence + 1}. {stop.rawAddressText ?? "(sin direccion)"}
                       </div>
                       <div className="text-text-muted font-data truncate text-xs">
-                        {stop.recipientName ?? "\u2014"} � #{stop.internalCode}
+                        {stop.recipientName ?? "\u2014"} · #{stop.internalCode}
                       </div>
                     </div>
                     {canAdjust && allRoutes.length > 1 && (

@@ -107,6 +107,15 @@ function detectOutliers(
   outlierDistanceM: number,
 ): Set<string> {
   const outliers = new Set<string>();
+  // Con un solo punto no hay NADIE con quién compararlo — el loop de
+  // abajo se saltea a sí mismo (`other.id === point.id`) y
+  // `nearestNeighborM` queda en `Infinity`, que es SIEMPRE mayor que
+  // `outlierDistanceM`: el único paquete de una ruta terminaba marcado
+  // como outlier por construcción, no porque esté realmente lejos de
+  // nada — bug real encontrado probando "agregar ruta" con 1 solo
+  // paquete libre (nunca generaba ninguna ruta). Estar solo no es lo
+  // mismo que estar lejos de los vecinos.
+  if (points.length <= 1) return outliers;
   for (const point of points) {
     let nearestNeighborM = Infinity;
     for (const other of points) {
