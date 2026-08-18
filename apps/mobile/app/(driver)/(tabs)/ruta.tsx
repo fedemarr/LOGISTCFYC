@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
-  ScrollView,
   Text,
   TouchableOpacity,
   View,
@@ -25,22 +24,16 @@ import { colors, fonts, radius, spacing, touch } from "../../../src/theme/tokens
 
 const STOP_LABELS: Record<string, string> = {
   PENDING: "Pendiente",
-  ARRIVED: "Llegó",
+  ARRIVED: "Llego",
   COMPLETED: "Entregado",
   FAILED: "Problema",
   SKIPPED: "Salteada",
 };
 
 /**
- * "Ruta" — tab principal del chofer (§9.5, §9.8, §9.9), fusiona lo que
- * antes eran dos pantallas separadas (Inicio + Mis paradas) en una sola,
- * con el mapa arriba (pedido explícito de Fede) en vez de una lista
- * pelada:
- *
- *   - Banner de conexión/sync + toggle "EN SERVICIO" (ex-Inicio).
- *   - Mapa con pines numerados por parada, coloreados por estado.
- *   - Lista completa debajo, con reorden manual (§9.8) y "Finalizar
- *     ruta" (§9.9) — misma lógica que tenía `paradas.tsx` antes.
+ * "Ruta" � tab principal del chofer. Mapa SIEMPRE visible arriba estilo
+ * Google Maps, con el punto azul de ubicacion. Debajo la info de la ruta
+ * y las paradas.
  */
 export default function RutaScreen() {
   const db = useSQLiteContext();
@@ -69,26 +62,14 @@ export default function RutaScreen() {
     );
   }, [db]);
 
+  // Pedir permiso de ubicacion apenas arranca la pantalla (como Google Maps)
+  React.useEffect(() => {
+    void Location.requestForegroundPermissionsAsync();
+  }, []);
+
   useFocusEffect(
     React.useCallback(() => {
       void load();
-
-      // Punto azul del chofer, Google Maps real (pedido de Fede): pide el
-      // permiso de ubicación apenas entra a esta pantalla si todavía no
-      // lo dio (antes solo intentaba LEER una posición sin pedirlo nunca
-      // — si no estaba ya concedido por otro camino, el punto azul no
-      // aparecía jamás y al usuario tampoco se le preguntaba). El punto
-      // en sí ya no se maneja a mano acá: `RouteMapView` usa
-      // `react-native-maps` con `showsUserLocation`, que lo sigue en
-      // vivo de forma nativa una vez que el permiso está concedido.
-      let cancelled = false;
-      void Location.requestForegroundPermissionsAsync().catch(() => {
-        if (cancelled) return;
-      });
-
-      return () => {
-        cancelled = true;
-      };
     }, [load]),
   );
 
@@ -140,95 +121,102 @@ export default function RutaScreen() {
     (s) => s.status === "COMPLETED",
   ).length;
   const isInTransit = routeInfo?.status === "IN_TRANSIT";
+  const routeStops = routeInfo?.stops ?? [];
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <ScrollView
-        style={{ flex: 1, backgroundColor: colors.bg }}
-        contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg }}
-      >
-        <ConnectionBanner
-          isOnline={isOnline}
-          isSyncing={isSyncing}
-          pendingCount={pendingCount}
-        />
+      {/* Mapa SIEMPRE visible arriba � como Google Maps. Se muestra siempre
+          aunque no haya ruta descargada (solo el punto azul del chofer). */}
+      <RouteMapView
+        stops={routeStops
+          .filter((s) => s.lat != null && s.lng != null)
+          .map((s) => ({
+            id: s.id,
+            sequence: s.sequence,
+            lat: s.lat!,
+            lng: s.lng!,
+            status: s.status,
+          }))}
+        fill
+        onStopPress={(stopId) => router.push(`/parada/${stopId}`)}
+      />
 
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <View style={{ gap: spacing.xs }}>
-            <Text
-              style={{ fontFamily: fonts.sansBold, fontSize: 22, color: colors.text }}
-            >
-              {routeInfo
-                ? `RUTA ${String(routeInfo.routeNumber).padStart(3, "0")}`
-                : "SIN RUTA"}
+      {/* Panel inferior scrolleable encima del mapa */}
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: colors.bg,
+          borderTopLeftRadius: radius.lg,
+          borderTopRightRadius: radius.lg,
+          marginTop: -radius.lg,
+          overflow: "hidden",
+        }}
+      >
+        <View style={{ padding: spacing.lg, gap: spacing.md, flex: 1 }}>
+          {/* Connection banner */}
+          {(isOnline === false || pendingCount > 0) && (
+            <ConnectionBanner
+              isOnline={isOnline}
+              isSyncing={isSyncing}
+              pendingCount={pendingCount}
+            />
+          )}
+
+          {lastError && (
+            <Text style={{ fontFamily: fonts.sans, fontSize: 13, color: colors.warning }}>
+              {lastError}
             </Text>
-            <Text style={{ fontFamily: fonts.sans, fontSize: 14, color: colors.muted }}>
-              {completed} de {routeInfo?.stops.length ?? 0} paradas entregadas
-            </Text>
-          </View>
-          <TouchableOpacity
-            onPress={() => setOnService((v) => !v)}
+          )}
+
+          {/* Header de ruta */}
+          <View
             style={{
-              paddingHorizontal: spacing.md,
-              height: 44,
-              borderRadius: radius.md,
-              backgroundColor: onService ? colors.success : colors.surface2,
-              borderWidth: 1,
-              borderColor: onService ? colors.success : colors.border,
+              flexDirection: "row",
               alignItems: "center",
-              justifyContent: "center",
+              justifyContent: "space-between",
             }}
           >
-            <Text
+            <View style={{ gap: spacing.xs }}>
+              <Text
+                style={{ fontFamily: fonts.sansBold, fontSize: 22, color: colors.text }}
+              >
+                {routeInfo
+                  ? `RUTA ${String(routeInfo.routeNumber).padStart(3, "0")}`
+                  : "SIN RUTA"}
+              </Text>
+              <Text style={{ fontFamily: fonts.sans, fontSize: 14, color: colors.muted }}>
+                {routeInfo
+                  ? `${completed} de ${routeStops.length} paradas entregadas`
+                  : "Escanea una ruta desde el menu de escaneo"}
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => setOnService((v) => !v)}
               style={{
-                fontFamily: fonts.sansSemibold,
-                fontSize: 13,
-                color: onService ? colors.bg : colors.muted,
+                paddingHorizontal: spacing.md,
+                height: 44,
+                borderRadius: radius.md,
+                backgroundColor: onService ? colors.success : colors.surface2,
+                borderWidth: 1,
+                borderColor: onService ? colors.success : colors.border,
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              {onService ? "⚡ EN SERVICIO" : "Fuera de servicio"}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {lastError && (
-          <Text style={{ fontFamily: fonts.sans, fontSize: 13, color: colors.warning }}>
-            {lastError}
-          </Text>
-        )}
-
-        {!routeInfo && (
-          <View style={cardStyle}>
-            <Text style={{ fontFamily: fonts.sans, fontSize: 15, color: colors.muted }}>
-              Todavía no tenés una ruta descargada — pedila desde Más.
-            </Text>
+              <Text
+                style={{
+                  fontFamily: fonts.sansSemibold,
+                  fontSize: 13,
+                  color: onService ? colors.bg : colors.muted,
+                }}
+              >
+                {onService ? "EN SERVICIO" : "Fuera de servicio"}
+              </Text>
+            </TouchableOpacity>
           </View>
-        )}
 
-        {routeInfo && routeInfo.stops.length > 0 && (
-          <RouteMapView
-            stops={routeInfo.stops
-              .filter((s) => s.lat != null && s.lng != null)
-              .map((s) => ({
-                id: s.id,
-                sequence: s.sequence,
-                lat: s.lat!,
-                lng: s.lng!,
-                status: s.status,
-              }))}
-            height={360}
-            onStopPress={(stopId) => router.push(`/parada/${stopId}`)}
-          />
-        )}
-
-        {routeInfo &&
-          routeInfo.stops.map((stop) => {
+          {/* Lista de paradas */}
+          {routeStops.map((stop) => {
             const completedStop = stop.status === "COMPLETED" || stop.status === "FAILED";
             return (
               <View key={stop.id} style={cardStyle}>
@@ -250,7 +238,7 @@ export default function RutaScreen() {
                         color: colors.text,
                       }}
                     >
-                      {String(stop.sequence).padStart(2, "0")} · BULTO{" "}
+                      {String(stop.sequence).padStart(2, "0")} . BULTO{" "}
                       {stop.bulk_number ?? "-"}
                     </Text>
                     <View
@@ -280,7 +268,7 @@ export default function RutaScreen() {
                   <Text
                     style={{ fontFamily: fonts.sans, fontSize: 13, color: colors.muted }}
                   >
-                    {stop.raw_address_text ?? "Sin dirección"}
+                    {stop.raw_address_text ?? "Sin direccion"}
                   </Text>
                 </TouchableOpacity>
 
@@ -291,17 +279,17 @@ export default function RutaScreen() {
                       disabled={stop.sequence <= 1}
                       style={[reorderButton, { opacity: stop.sequence <= 1 ? 0.3 : 1 }]}
                     >
-                      <Text style={reorderGlyph}>↑</Text>
+                      <Text style={reorderGlyph}>^</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => void moveStop(stop.id, 1)}
-                      disabled={stop.sequence >= routeInfo.stops.length}
+                      disabled={stop.sequence >= routeStops.length}
                       style={[
                         reorderButton,
-                        { opacity: stop.sequence >= routeInfo.stops.length ? 0.3 : 1 },
+                        { opacity: stop.sequence >= routeStops.length ? 0.3 : 1 },
                       ]}
                     >
-                      <Text style={reorderGlyph}>↓</Text>
+                      <Text style={reorderGlyph}>v</Text>
                     </TouchableOpacity>
                   </View>
                 )}
@@ -309,34 +297,34 @@ export default function RutaScreen() {
             );
           })}
 
-        {routeInfo && isInTransit && (
-          <TouchableOpacity
-            onPress={() => void handleFinishRoute()}
-            disabled={finishing}
-            style={{
-              height: touch.primaryButton,
-              borderRadius: radius.md,
-              backgroundColor: colors.danger,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: finishing ? 0.6 : 1,
-            }}
-          >
-            {finishing ? (
-              <ActivityIndicator color={colors.bg} />
-            ) : (
-              <Text
-                style={{ fontFamily: fonts.sansBold, fontSize: 17, color: colors.bg }}
-              >
-                FINALIZAR RUTA
-              </Text>
-            )}
-          </TouchableOpacity>
-        )}
-      </ScrollView>
+          {isInTransit && (
+            <TouchableOpacity
+              onPress={() => void handleFinishRoute()}
+              disabled={finishing}
+              style={{
+                height: touch.primaryButton,
+                borderRadius: radius.md,
+                backgroundColor: colors.danger,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: finishing ? 0.6 : 1,
+              }}
+            >
+              {finishing ? (
+                <ActivityIndicator color={colors.bg} />
+              ) : (
+                <Text
+                  style={{ fontFamily: fonts.sansBold, fontSize: 17, color: colors.bg }}
+                >
+                  FINALIZAR RUTA
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
 
-      {/* FAB de 3 puntitos — acciones de escaneo (FASE A): la propia ruta
-          ahora mismo; ruta de colega y colecta próximamente. */}
+      {/* FAB de escaneo */}
       <TouchableOpacity
         onPress={() => setSheetOpen(true)}
         activeOpacity={0.85}
@@ -366,7 +354,7 @@ export default function RutaScreen() {
             color: colors.bg,
           }}
         >
-          ⋮
+          :
         </Text>
       </TouchableOpacity>
 
@@ -420,11 +408,11 @@ function RouteActionsSheet({
             </Text>
             <SheetOption
               title="Escanear ruta"
-              subtitle="Tu ruta asignada — abre la custodia"
+              subtitle="Tu ruta asignada - abre la custodia"
               onPress={onScanRoute}
             />
-            <SheetOption title="Escanear ruta de tu colega" subtitle="Próximamente" />
-            <SheetOption title="Escanear ruta de colecta" subtitle="Próximamente" />
+            <SheetOption title="Escanear ruta de tu colega" subtitle="Proximamente" />
+            <SheetOption title="Escanear ruta de colecta" subtitle="Proximamente" />
             <TouchableOpacity
               onPress={onClose}
               style={{
@@ -511,7 +499,6 @@ function ConnectionBanner({
   pendingCount: number;
 }) {
   if (isOnline && pendingCount === 0) return null;
-
   return (
     <View
       style={{
@@ -535,10 +522,10 @@ function ConnectionBanner({
         }}
       >
         {!isOnline
-          ? "Sin conexión — todo se guarda local"
+          ? "Sin conexion - todo se guarda local"
           : isSyncing
-            ? "Sincronizando…"
-            : `${pendingCount} acción(es) pendientes de sincronizar`}
+            ? "Sincronizando..."
+            : `${pendingCount} accion(es) pendientes de sincronizar`}
       </Text>
     </View>
   );
