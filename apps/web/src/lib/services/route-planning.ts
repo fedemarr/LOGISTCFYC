@@ -617,14 +617,11 @@ export async function deleteRoute(
 }
 
 /**
- * FINALIZAR desde el panel (pedido de Fede): mismo efecto que
- * `finishRoute()` del chofer (`delivery.ts`, disparado por
- * `ROUTE_FINISHED` del sync) pero gatillado por el dispatcher — para
- * cuando el chofer ya entregó todo pero su celular no puede cerrar la
- * ruta (se quedó sin batería, la app no sincronizó, etc.). Solo desde
- * IN_TRANSIT → COMPLETED, igual que el chofer — no fuerza el estado de
- * los paquetes individuales, esa es responsabilidad de cada entrega ya
- * registrada.
+ * FINALIZAR desde el panel (pedido de Fede): cierra una ruta aprobada
+ * o en curso para que quede COMPLETED y se puedan generar nuevas rutas
+ * con paquetes libres. Acepta APPROVED (nunca arrancó custodia) e
+ * IN_TRANSIT (el chofer ya salió pero no pudo cerrar la ruta desde la
+ * app).
  */
 export async function completeRouteManually(
   orgId: string,
@@ -638,9 +635,9 @@ export async function completeRouteManually(
       and(eq(routes.id, routeId), eq(routes.orgId, orgId), isNull(routes.deletedAt)),
     );
   if (!route) throw Errors.notFound("ruta no encontrada");
-  if (route.status !== "IN_TRANSIT") {
+  if (route.status !== "APPROVED" && route.status !== "IN_TRANSIT") {
     throw Errors.conflict(
-      `la ruta está ${route.status} — solo se puede finalizar en curso`,
+      `la ruta está ${route.status} — solo se puede finalizar una ruta aprobada o en curso`,
     );
   }
 
@@ -668,7 +665,7 @@ export async function completeRouteManually(
         eventType: "ROUTE_FINISHED",
         actorId: actor.userId,
         actorRole: actor.roles.join(","),
-        fromStatus: "IN_TRANSIT",
+        fromStatus: route.status,
         toStatus: "COMPLETED",
         metadata: { finishedBy: "dispatcher" },
         occurredAt: finishedAt,

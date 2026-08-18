@@ -447,7 +447,7 @@ export function RouteCard({
             Etiquetas
           </Button>
         )}
-        {route.status === "IN_TRANSIT" && (
+        {(route.status === "APPROVED" || route.status === "IN_TRANSIT") && (
           <Button onClick={() => void handleComplete()} disabled={busy} variant="outline">
             {busy ? (
               <Loader2 className="size-4 animate-spin" />
