@@ -215,6 +215,30 @@ export default function RutaScreen() {
             </TouchableOpacity>
           </View>
 
+          {/* Pedido de Fede: apenas la ruta tiene la custodia confirmada
+              (ASSIGNED — contó los bultos, todo OK) pero todavía no
+              arrancó (IN_TRANSIT), un botón grande y arriba de todo para
+              iniciarla — antes había que ir a buscarlo a la pantalla de
+              Custodia, ahora está a mano apenas se entra a Ruta. */}
+          {routeInfo?.status === "ASSIGNED" && (
+            <TouchableOpacity
+              onPress={() => router.push("/iniciar-ruta")}
+              style={{
+                height: touch.primaryButton,
+                borderRadius: radius.md,
+                backgroundColor: colors.success,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text
+                style={{ fontFamily: fonts.sansBold, fontSize: 17, color: colors.bg }}
+              >
+                🚀 Iniciar ruta
+              </Text>
+            </TouchableOpacity>
+          )}
+
           {/* Lista de paradas */}
           {routeStops.map((stop) => {
             const completedStop = stop.status === "COMPLETED" || stop.status === "FAILED";

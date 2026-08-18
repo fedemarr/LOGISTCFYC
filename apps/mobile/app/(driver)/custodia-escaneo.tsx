@@ -64,6 +64,14 @@ export default function CustodiaEscanearScreen() {
   const [finishing, setFinishing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const cooldownRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Freno sincrónico contra escaneos superpuestos (crash real reportado
+  // por Fede escaneando bultos rápido y seguido): `paused` es estado de
+  // React, se aplica recién en el próximo render — la cámara nativa
+  // puede disparar `onBarcodeScanned` un par de veces más ANTES de que
+  // React llegue a sacar el callback, así que varios escaneos entraban
+  // en simultáneo (llamadas a red + audio + háptica pisándose entre
+  // sí). Un ref se escribe al instante, sin esperar un render.
+  const processingRef = React.useRef(false);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -162,10 +170,15 @@ export default function CustodiaEscanearScreen() {
   }
 
   async function handleBarcode(rawCode: string, codeFormat: string) {
-    if (paused || !mode) return;
+    if (processingRef.current || paused || !mode) return;
+    processingRef.current = true;
     setPaused(true);
-    if (mode === "container") await handleContainerScan(rawCode);
-    else await handlePackageScan(rawCode, codeFormat);
+    try {
+      if (mode === "container") await handleContainerScan(rawCode);
+      else await handlePackageScan(rawCode, codeFormat);
+    } finally {
+      processingRef.current = false;
+    }
   }
 
   async function handleFinish() {

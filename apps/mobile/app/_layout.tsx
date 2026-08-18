@@ -18,6 +18,7 @@ import {
 } from "@expo-google-fonts/jetbrains-mono";
 import { SessionProvider, useSession } from "../src/context/session";
 import { LocalDbProvider } from "../src/lib/db/provider";
+import { ErrorBoundary } from "../src/components/ErrorBoundary";
 import { colors } from "../src/theme/tokens";
 
 void SplashScreen.preventAutoHideAsync();
@@ -60,14 +61,16 @@ export default function RootLayout() {
   if (!fontsLoaded && !fontError) return null;
 
   return (
-    <SafeAreaProvider>
-      <LocalDbProvider>
-        <SessionProvider>
-          <StatusBar style="light" />
-          <RootNavigator />
-        </SessionProvider>
-      </LocalDbProvider>
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <LocalDbProvider>
+          <SessionProvider>
+            <StatusBar style="light" />
+            <RootNavigator />
+          </SessionProvider>
+        </LocalDbProvider>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }
 

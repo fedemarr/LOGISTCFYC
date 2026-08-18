@@ -37,6 +37,11 @@ export default function EscanearRutaScreen() {
     text: string;
   } | null>(null);
   const cooldownRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Mismo freno sincrónico que custodia-escaneo.tsx: `paused` (estado de
+  // React) no alcanza a evitar que la cámara dispare el callback un par
+  // de veces más antes del próximo render — un ref sí bloquea al
+  // instante.
+  const processingRef = React.useRef(false);
 
   React.useEffect(() => {
     return () => {
@@ -48,10 +53,15 @@ export default function EscanearRutaScreen() {
     cooldownRef.current = setTimeout(() => {
       setPaused(false);
       setBanner(null);
+      processingRef.current = false;
     }, COOLDOWN_MS);
   }
 
   async function handleScan(rawCode: string) {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    setPaused(true);
+
     const routeId = parseRouteQrPayload(rawCode);
     if (!routeId) {
       playFeedback("error");
