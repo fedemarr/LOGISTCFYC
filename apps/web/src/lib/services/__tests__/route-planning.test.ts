@@ -515,29 +515,47 @@ describe("agregar ruta (generateRouteProposal corrido más de una vez, §8)", ()
 describe("deleteRoute / completeRouteManually (pedido de Fede, integración contra Supabase real)", () => {
   const runId = randomUUID().slice(0, 8);
   const villaBallester = { lat: -34.5489, lng: -58.5645 };
+  const createdScenarios: { orgId: string; driverId: string }[] = [];
 
-  let orgId: string;
-  let driverId: string;
-  let operationCounter = 0;
-
-  // Vehículo Y OPERACIÓN nuevos por escenario, nada compartido entre
-  // tests: algún test deja adrede una ruta "sucia" en IN_TRANSIT sin
-  // liberar el vehículo (es justo lo que prueba), y otro libera paquetes
-  // de vuelta a GEOCODIFICADO sin ruta — si todos los tests compartieran
-  // la misma operación, `generateRouteProposal` de un test agarraría
-  // también los paquetes libres que dejó un test anterior (mismo filtro
-  // que hace real "agregar ruta"), contaminando el resultado. Con
-  // operación propia por escenario, cada uno queda con su propia bolsa
-  // de paquetes libres, sin cruces.
+  // Org, vehículo Y operación nuevos por escenario, nada compartido entre
+  // tests. No alcanza con separar solo operación/vehículo: desde que
+  // `fetchAvailableVehicles` mira TODA la org (a propósito — un vehículo
+  // no puede estar en dos operaciones a la vez, ver comentario en
+  // route-planning.ts), un vehículo que un test anterior liberó (borró o
+  // finalizó su ruta) queda disponible para el resto de la org — y
+  // `clusterPackages` con más vehículos disponibles que paquetes separa
+  // cada paquete en su propio cluster (k >= cantidad de puntos) en vez de
+  // agruparlos en uno solo. Org propia por escenario evita ese cruce por
+  // completo, sin pelearse con el comportamiento real (y correcto) de
+  // "vehículo liberado, listo para la próxima operación".
   async function makeApprovedRoute(label: string, packageCount: number) {
-    operationCounter++;
+    const [org] = await db
+      .insert(organizations)
+      .values({ name: `Route Del Test Org ${runId}-${label}` })
+      .returning();
+    if (!org) throw new Error("no se pudo crear la org de test");
+    const orgId = org.id;
+
+    const { data: d1, error: e1 } = await supabaseAdmin.auth.admin.createUser({
+      email: `route-del-driver-${runId}-${label}@test`,
+      password: TEST_PASSWORD,
+      email_confirm: true,
+    });
+    if (e1 || !d1.user) throw e1 ?? new Error("sin usuario driver");
+    const driverId = d1.user.id;
+    createdScenarios.push({ orgId, driverId });
+
+    await db.insert(users).values({
+      id: driverId,
+      orgId,
+      email: `route-del-driver-${runId}-${label}@test`,
+      fullName: "Driver Del",
+    });
+    await db.insert(userRoles).values({ userId: driverId, role: "driver" });
+
     const [op] = await db
       .insert(operations)
-      .values({
-        orgId,
-        operationDate: `2026-09-${String(operationCounter).padStart(2, "0")}`,
-        status: "OPEN",
-      })
+      .values({ orgId, operationDate: "2026-09-01", status: "OPEN" })
       .returning();
     if (!op) throw new Error("no se pudo crear la operación de test");
 
@@ -578,64 +596,43 @@ describe("deleteRoute / completeRouteManually (pedido de Fede, integración cont
     const result = await generateRouteProposal(orgId, op.id);
     const created = result.routes.at(-1);
     if (!created) throw new Error("no se generó ninguna ruta");
-    return created.routeId;
+    return { orgId, driverId, routeId: created.routeId };
   }
 
-  beforeAll(async () => {
+  beforeAll(() => {
     process.env.DEFAULT_DEPOT_LAT = "-34.56";
     process.env.DEFAULT_DEPOT_LNG = "-58.55";
-
-    const [org] = await db
-      .insert(organizations)
-      .values({ name: `Route Del Test Org ${runId}` })
-      .returning();
-    if (!org) throw new Error("no se pudo crear la org de test");
-    orgId = org.id;
-
-    const { data: d1, error: e1 } = await supabaseAdmin.auth.admin.createUser({
-      email: `route-del-driver-${runId}@test`,
-      password: TEST_PASSWORD,
-      email_confirm: true,
-    });
-    if (e1 || !d1.user) throw e1 ?? new Error("sin usuario driver");
-    driverId = d1.user.id;
-
-    await db.insert(users).values({
-      id: driverId,
-      orgId,
-      email: `route-del-driver-${runId}@test`,
-      fullName: "Driver Del",
-    });
-    await db.insert(userRoles).values({ userId: driverId, role: "driver" });
-  }, 60_000);
+  });
 
   afterAll(async () => {
-    await purgeTestEvents(orgId);
-    await db
-      .delete(routeStops)
-      .where(sql`route_id IN (SELECT id FROM routes WHERE org_id = ${orgId})`);
-    await db.delete(packages).where(eq(packages.orgId, orgId));
-    await db.delete(routes).where(eq(routes.orgId, orgId));
-    await db.delete(knownAddresses).where(eq(knownAddresses.orgId, orgId));
-    await db.delete(vehicles).where(eq(vehicles.orgId, orgId));
-    await db.delete(operations).where(eq(operations.orgId, orgId));
-    await db.delete(userRoles).where(eq(userRoles.userId, driverId));
-    await db.delete(users).where(eq(users.orgId, orgId));
-    await db.delete(organizations).where(eq(organizations.id, orgId));
-    await supabaseAdmin.auth.admin.deleteUser(driverId).catch(() => {});
-  }, 30_000);
+    for (const { orgId, driverId } of createdScenarios) {
+      await purgeTestEvents(orgId);
+      await db
+        .delete(routeStops)
+        .where(sql`route_id IN (SELECT id FROM routes WHERE org_id = ${orgId})`);
+      await db.delete(packages).where(eq(packages.orgId, orgId));
+      await db.delete(routes).where(eq(routes.orgId, orgId));
+      await db.delete(knownAddresses).where(eq(knownAddresses.orgId, orgId));
+      await db.delete(vehicles).where(eq(vehicles.orgId, orgId));
+      await db.delete(operations).where(eq(operations.orgId, orgId));
+      await db.delete(userRoles).where(eq(userRoles.userId, driverId));
+      await db.delete(users).where(eq(users.orgId, orgId));
+      await db.delete(organizations).where(eq(organizations.id, orgId));
+      await supabaseAdmin.auth.admin.deleteUser(driverId).catch(() => {});
+    }
+  }, 60_000);
 
-  const actor = () => ({ userId: driverId, roles: ["admin"] as const });
+  const actor = (driverId: string) => ({ userId: driverId, roles: ["admin"] as const });
 
   it("eliminar una ruta DRAFT libera sus paquetes (vuelven a GEOCODIFICADO, sin ruta)", async () => {
-    const routeId = await makeApprovedRoute("draft", 2);
+    const { orgId, driverId, routeId } = await makeApprovedRoute("draft", 2);
     const before = await db
       .select({ id: packages.id })
       .from(packages)
       .where(eq(packages.routeId, routeId));
     expect(before).toHaveLength(2);
 
-    await deleteRoute(orgId, routeId, actor());
+    await deleteRoute(orgId, routeId, actor(driverId));
 
     const [deletedRoute] = await db.select().from(routes).where(eq(routes.id, routeId));
     expect(deletedRoute?.deletedAt).not.toBeNull();
@@ -655,7 +652,7 @@ describe("deleteRoute / completeRouteManually (pedido de Fede, integración cont
   }, 30_000);
 
   it("eliminar una ruta ya aprobada también libera los paquetes (ASIGNADO → GEOCODIFICADO)", async () => {
-    const routeId = await makeApprovedRoute("approved", 2);
+    const { orgId, driverId, routeId } = await makeApprovedRoute("approved", 2);
     await approveRoute(orgId, routeId, { userId: driverId, roles: ["admin"] });
 
     const beforeStatuses = await db
@@ -664,7 +661,7 @@ describe("deleteRoute / completeRouteManually (pedido de Fede, integración cont
       .where(eq(packages.routeId, routeId));
     expect(beforeStatuses.every((p) => p.status === "ASIGNADO")).toBe(true);
 
-    await deleteRoute(orgId, routeId, actor());
+    await deleteRoute(orgId, routeId, actor(driverId));
 
     const [deletedRoute] = await db.select().from(routes).where(eq(routes.id, routeId));
     expect(deletedRoute?.status).toBe("APPROVED"); // el status queda de recuerdo, lo que manda es deletedAt
@@ -672,36 +669,72 @@ describe("deleteRoute / completeRouteManually (pedido de Fede, integración cont
   }, 30_000);
 
   it("no se puede eliminar una ruta IN_TRANSIT — falla con CONFLICT", async () => {
-    const routeId = await makeApprovedRoute("transit", 1);
+    const { orgId, driverId, routeId } = await makeApprovedRoute("transit", 1);
     await approveRoute(orgId, routeId, { userId: driverId, roles: ["admin"] });
     await db
       .update(routes)
       .set({ status: "IN_TRANSIT", startedAt: new Date() })
       .where(eq(routes.id, routeId));
 
-    await expect(deleteRoute(orgId, routeId, actor())).rejects.toMatchObject({
+    await expect(deleteRoute(orgId, routeId, actor(driverId))).rejects.toMatchObject({
       code: "CONFLICT",
     });
   }, 30_000);
 
   it("finalizar una ruta IN_TRANSIT la pasa a COMPLETED", async () => {
-    const routeId = await makeApprovedRoute("complete", 1);
+    const { orgId, driverId, routeId } = await makeApprovedRoute("complete", 1);
     await approveRoute(orgId, routeId, { userId: driverId, roles: ["admin"] });
     await db
       .update(routes)
       .set({ status: "IN_TRANSIT", startedAt: new Date() })
       .where(eq(routes.id, routeId));
 
-    await completeRouteManually(orgId, routeId, actor());
+    await completeRouteManually(orgId, routeId, actor(driverId));
 
     const [route] = await db.select().from(routes).where(eq(routes.id, routeId));
     expect(route?.status).toBe("COMPLETED");
     expect(route?.completedAt).not.toBeNull();
   }, 30_000);
 
-  it("no se puede finalizar una ruta que no está IN_TRANSIT — falla con CONFLICT", async () => {
-    const routeId = await makeApprovedRoute("notransit", 1);
-    await expect(completeRouteManually(orgId, routeId, actor())).rejects.toMatchObject({
+  it("finalizar una ruta APPROVED (nunca arrancó custodia) libera sus paquetes — regresión bug real", async () => {
+    // El primer intento de este permiso (commit 7ed3c86) decía en el
+    // comentario que liberaba los paquetes al finalizar una ruta que
+    // nunca salió, pero el código no lo hacía — quedaban ASIGNADO,
+    // pegados para siempre a una ruta ya "completada" sin haber
+    // entregado nada, sin forma de re-rutearlos.
+    const { orgId, driverId, routeId } = await makeApprovedRoute("approved-complete", 2);
+    await approveRoute(orgId, routeId, { userId: driverId, roles: ["admin"] });
+
+    const before = await db
+      .select({ id: packages.id })
+      .from(packages)
+      .where(eq(packages.routeId, routeId));
+    expect(before).toHaveLength(2);
+
+    await completeRouteManually(orgId, routeId, actor(driverId));
+
+    const [route] = await db.select().from(routes).where(eq(routes.id, routeId));
+    expect(route?.status).toBe("COMPLETED");
+
+    const freed = await db
+      .select({ status: packages.status, routeId: packages.routeId })
+      .from(packages)
+      .where(
+        inArray(
+          packages.id,
+          before.map((p) => p.id),
+        ),
+      );
+    expect(freed).toHaveLength(2);
+    expect(freed.every((p) => p.status === "GEOCODIFICADO")).toBe(true);
+    expect(freed.every((p) => p.routeId === null)).toBe(true);
+  }, 30_000);
+
+  it("no se puede finalizar una ruta DRAFT/PROPOSED (ni aprobada ni en curso) — falla con CONFLICT", async () => {
+    const { orgId, driverId, routeId } = await makeApprovedRoute("notransit", 1);
+    await expect(
+      completeRouteManually(orgId, routeId, actor(driverId)),
+    ).rejects.toMatchObject({
       code: "CONFLICT",
     });
   }, 30_000);

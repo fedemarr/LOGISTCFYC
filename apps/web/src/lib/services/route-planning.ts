@@ -129,27 +129,33 @@ interface AvailableVehicle {
 
 /**
  * Vehículos AVAILABLE con chofer, EXCLUYENDO los que ya están en una ruta
- * activa de ESTA operación — necesario desde que `generateRouteProposal`
- * se puede correr más de una vez por operación (§8: "agregar ruta" sobre
- * paquetes que llegaron después de la primera tanda). Sin este filtro, un
- * mismo chofer/vehículo podría terminar con dos rutas simultáneas el
- * mismo día. `vehicles.status` no cambia a `IN_ROUTE` hasta que el chofer
- * arranca de verdad (§9.4) — DRAFT/APPROVED/ASSIGNED todavía lo muestran
- * como AVAILABLE, por eso hace falta este chequeo aparte.
+ * activa — necesario desde que `generateRouteProposal` se puede correr
+ * más de una vez (§8: "agregar ruta" sobre paquetes que llegaron después
+ * de la primera tanda). Sin este filtro, un mismo chofer/vehículo podría
+ * terminar con dos rutas simultáneas. `vehicles.status` no cambia a
+ * `IN_ROUTE` hasta que el chofer arranca de verdad (§9.4) —
+ * DRAFT/APPROVED/ASSIGNED todavía lo muestran como AVAILABLE, por eso
+ * hace falta este chequeo aparte.
+ *
+ * A propósito NO se escopea por `operationId` (bug real encontrado
+ * probando "finalizar" una ruta APPROVED: un vehículo con una ruta
+ * activa en OTRA operación aparecía como libre acá, porque el chequeo
+ * de "ocupado" solo miraba adentro de la operación actual — un vehículo
+ * no puede estar en dos operaciones a la vez, así que "ocupado" tiene
+ * que mirar TODA la organización). CANCELLED y COMPLETED sí liberan el
+ * vehículo — una ruta que ya terminó (bien o cancelada) no lo tiene
+ * ocupado más.
  */
-async function fetchAvailableVehicles(
-  orgId: string,
-  operationId: string,
-): Promise<AvailableVehicle[]> {
+async function fetchAvailableVehicles(orgId: string): Promise<AvailableVehicle[]> {
   const busy = await db
     .select({ vehicleId: routes.vehicleId })
     .from(routes)
     .where(
       and(
         eq(routes.orgId, orgId),
-        eq(routes.operationId, operationId),
         isNull(routes.deletedAt),
         ne(routes.status, "CANCELLED"),
+        ne(routes.status, "COMPLETED"),
       ),
     );
   const busyVehicleIds = new Set(
@@ -238,7 +244,7 @@ export async function generateRouteProposal(
     );
   }
 
-  const vehicleList = await fetchAvailableVehicles(orgId, operationId);
+  const vehicleList = await fetchAvailableVehicles(orgId);
   if (vehicleList.length === 0) {
     throw Errors.validation(
       "no hay vehículos AVAILABLE con chofer asignado y sin ruta activa en esta operación",
@@ -618,10 +624,19 @@ export async function deleteRoute(
 
 /**
  * FINALIZAR desde el panel (pedido de Fede): cierra una ruta aprobada
- * o en curso para que quede COMPLETED y se puedan generar nuevas rutas
- * con paquetes libres. Acepta APPROVED (nunca arrancó custodia) e
- * IN_TRANSIT (el chofer ya salió pero no pudo cerrar la ruta desde la
- * app).
+ * o en curso para que quede COMPLETED. Acepta dos casos bien distintos:
+ *
+ *   - IN_TRANSIT: el chofer ya salió pero no pudo cerrar la ruta desde
+ *     la app (se quedó sin batería, no sincronizó). NO se tocan los
+ *     paquetes — cada entrega ya quedó registrada por su cuenta, esto
+ *     solo cierra el registro de la ruta.
+ *   - APPROVED: la ruta nunca arrancó custodia. Acá SÍ hay que liberar
+ *     los paquetes (mismo efecto que `deleteRoute`: vuelven a
+ *     GEOCODIFICADO sin ruta) — si no, quedarían pegados para siempre a
+ *     una ruta "completada" que nunca entregó nada, sin forma de
+ *     re-rutearlos. Es la corrección de un bug real: la primera versión
+ *     de este permiso decía en el comentario que liberaba los paquetes
+ *     pero el código no lo hacía.
  */
 export async function completeRouteManually(
   orgId: string,
@@ -639,6 +654,30 @@ export async function completeRouteManually(
     throw Errors.conflict(
       `la ruta está ${route.status} — solo se puede finalizar una ruta aprobada o en curso`,
     );
+  }
+
+  if (route.status === "APPROVED") {
+    const stopPackages = await db
+      .select({ id: packages.id, status: packages.status })
+      .from(packages)
+      .where(eq(packages.routeId, routeId));
+    for (const p of stopPackages) {
+      if (p.status === "ASIGNADO") {
+        await runPackageTransition({
+          packageId: p.id,
+          toStatus: "GEOCODIFICADO",
+          actorId: actor.userId,
+          actorRoles: actor.roles,
+          metadata: { reason: "route_completed_without_departure", routeId },
+        });
+      }
+    }
+    if (stopPackages.length > 0) {
+      await db
+        .update(packages)
+        .set({ routeId: null, bulkNumber: null, updatedAt: new Date() })
+        .where(eq(packages.routeId, routeId));
+    }
   }
 
   const finishedAt = new Date();
