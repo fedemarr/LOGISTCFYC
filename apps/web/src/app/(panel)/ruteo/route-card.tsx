@@ -95,6 +95,14 @@ export function RouteCard({
     route.status === "DRAFT" ||
     route.status === "PROPOSED" ||
     route.status === "APPROVED";
+  // Antes de que arranque custodia no hay nada que perder al borrar: los
+  // paquetes simplemente vuelven a estar libres. De ahí en más (en curso,
+  // finalizada, cancelada) el borrado sigue siendo posible pero avisa
+  // distinto — ver `deleteRoute()` para qué le pasa a cada paquete.
+  const isPristine =
+    route.status === "DRAFT" ||
+    route.status === "PROPOSED" ||
+    route.status === "APPROVED";
   const color = route.colorHex ?? "var(--muted)";
   const pct = route.capacityPackages
     ? Math.round((route.stopCount / route.capacityPackages) * 100)
@@ -210,7 +218,9 @@ export function RouteCard({
     try {
       await api.del(`/api/routes/${route.id}`);
       toast({
-        title: `Ruta ${String(route.routeNumber).padStart(3, "0")} eliminada — sus paquetes quedaron libres para re-rutear`,
+        title: isPristine
+          ? `Ruta ${String(route.routeNumber).padStart(3, "0")} eliminada — sus paquetes quedaron libres para re-rutear`
+          : `Ruta ${String(route.routeNumber).padStart(3, "0")} eliminada`,
         variant: "success",
       });
       onChanged();
@@ -457,36 +467,48 @@ export function RouteCard({
             Finalizar
           </Button>
         )}
-        {(route.status === "DRAFT" ||
-          route.status === "PROPOSED" ||
-          route.status === "APPROVED") && (
-          <AlertDialogRoot>
-            <AlertDialogTrigger
-              render={
-                <Button variant="outline" disabled={busy}>
-                  <Trash2 className="size-4" />
-                  Eliminar
-                </Button>
-              }
-            />
-            <AlertDialogContent>
-              <AlertDialogTitle>
-                ¿Eliminar la ruta {String(route.routeNumber).padStart(3, "0")}?
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                Sus {stopCount} {stopCount === 1 ? "paquete" : "paquetes"} quedan libres
-                sin ruta — podés volver a rutearlos con &quot;Agregar ruta&quot;. Esta
-                acción no se puede deshacer.
-              </AlertDialogDescription>
-              <div className="flex justify-end gap-2">
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction onClick={() => void handleDelete()}>
-                  Eliminar
-                </AlertDialogAction>
-              </div>
-            </AlertDialogContent>
-          </AlertDialogRoot>
-        )}
+        <AlertDialogRoot>
+          <AlertDialogTrigger
+            render={
+              <Button variant="outline" disabled={busy}>
+                <Trash2 className="size-4" />
+                Eliminar
+              </Button>
+            }
+          />
+          <AlertDialogContent>
+            <AlertDialogTitle>
+              ¿Eliminar la ruta {String(route.routeNumber).padStart(3, "0")}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {isPristine ? (
+                <>
+                  Sus {stopCount} {stopCount === 1 ? "paquete" : "paquetes"} quedan libres
+                  sin ruta — podés volver a rutearlos con &quot;Agregar ruta&quot;. Esta
+                  acción no se puede deshacer.
+                </>
+              ) : (
+                <>
+                  Esta ruta ya está{" "}
+                  {route.status === "IN_TRANSIT"
+                    ? "en curso"
+                    : route.status === "COMPLETED"
+                      ? "finalizada"
+                      : "cancelada"}
+                  . Los paquetes que todavía no se entregaron quedan CANCELADOS (un admin
+                  los tiene que reabrir a mano para re-rutearlos); los que ya se
+                  entregaron no se tocan. Esta acción no se puede deshacer.
+                </>
+              )}
+            </AlertDialogDescription>
+            <div className="flex justify-end gap-2">
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={() => void handleDelete()}>
+                Eliminar
+              </AlertDialogAction>
+            </div>
+          </AlertDialogContent>
+        </AlertDialogRoot>
       </div>
 
       {detail && detail.stops.length > 0 && (

@@ -28,6 +28,7 @@ import {
   reassignPackageRoute,
   resolveDepotLocation,
 } from "../route-planning";
+import { runPackageTransition } from "../state-machine";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -668,17 +669,119 @@ describe("deleteRoute / completeRouteManually (pedido de Fede, integración cont
     expect(deletedRoute?.deletedAt).not.toBeNull();
   }, 30_000);
 
-  it("no se puede eliminar una ruta IN_TRANSIT — falla con CONFLICT", async () => {
-    const { orgId, driverId, routeId } = await makeApprovedRoute("transit", 1);
+  it("eliminar una ruta IN_TRANSIT cancela lo que ya tenía custodia y libera lo que seguía ASIGNADO", async () => {
+    // Pedido de Fede: poder borrar una ruta de prueba aunque ya haya
+    // arrancado, sin quedar trabado con un CONFLICT. No hay vuelta legal
+    // de CARGADO a GEOCODIFICADO (§4) — la única salida sancionada es
+    // cancelar con motivo.
+    const { orgId, driverId, routeId } = await makeApprovedRoute("transit", 2);
     await approveRoute(orgId, routeId, { userId: driverId, roles: ["admin"] });
     await db
       .update(routes)
       .set({ status: "IN_TRANSIT", startedAt: new Date() })
       .where(eq(routes.id, routeId));
 
-    await expect(deleteRoute(orgId, routeId, actor(driverId))).rejects.toMatchObject({
-      code: "CONFLICT",
+    const [before1, before2] = await db
+      .select({ id: packages.id })
+      .from(packages)
+      .where(eq(packages.routeId, routeId));
+    if (!before1 || !before2) throw new Error("faltan paquetes de test");
+
+    // Uno arranca custodia de verdad (CARGADO), el otro se queda ASIGNADO
+    // como si el chofer todavía no lo hubiese cargado.
+    await runPackageTransition({
+      packageId: before1.id,
+      toStatus: "CARGADO",
+      actorId: driverId,
+      actorRoles: ["driver"],
+      metadata: { routeId },
     });
+
+    await deleteRoute(orgId, routeId, actor(driverId));
+
+    const [deletedRoute] = await db.select().from(routes).where(eq(routes.id, routeId));
+    expect(deletedRoute?.deletedAt).not.toBeNull();
+
+    const [cargado] = await db
+      .select({ status: packages.status, routeId: packages.routeId })
+      .from(packages)
+      .where(eq(packages.id, before1.id));
+    expect(cargado?.status).toBe("CANCELADO");
+    expect(cargado?.routeId).toBe(routeId); // historial: sigue apuntando a la ruta borrada
+
+    const [asignado] = await db
+      .select({ status: packages.status, routeId: packages.routeId })
+      .from(packages)
+      .where(eq(packages.id, before2.id));
+    expect(asignado?.status).toBe("GEOCODIFICADO");
+    expect(asignado?.routeId).toBeNull(); // libre para re-rutear
+  }, 30_000);
+
+  it("eliminar una ruta con un paquete ya ENTREGADO no lo toca — queda como historial", async () => {
+    const { orgId, driverId, routeId } = await makeApprovedRoute("delivered", 1);
+    await approveRoute(orgId, routeId, { userId: driverId, roles: ["admin"] });
+    await db
+      .update(routes)
+      .set({ status: "IN_TRANSIT", startedAt: new Date() })
+      .where(eq(routes.id, routeId));
+
+    const [pkg] = await db
+      .select({ id: packages.id })
+      .from(packages)
+      .where(eq(packages.routeId, routeId));
+    if (!pkg) throw new Error("falta el paquete de test");
+
+    for (const toStatus of ["CARGADO", "EN_REPARTO", "EN_DOMICILIO"] as const) {
+      await runPackageTransition({
+        packageId: pkg.id,
+        toStatus,
+        actorId: driverId,
+        actorRoles: ["driver"],
+        metadata: { routeId },
+      });
+    }
+    await runPackageTransition({
+      packageId: pkg.id,
+      toStatus: "ENTREGADO",
+      actorId: driverId,
+      actorRoles: ["driver"],
+      metadata: { receiverName: "Juan Test", gps: { lat: -34.55, lng: -58.56 } },
+    });
+
+    await deleteRoute(orgId, routeId, actor(driverId));
+
+    const [afterDelete] = await db
+      .select({ status: packages.status, routeId: packages.routeId })
+      .from(packages)
+      .where(eq(packages.id, pkg.id));
+    expect(afterDelete?.status).toBe("ENTREGADO");
+    expect(afterDelete?.routeId).toBe(routeId);
+  }, 30_000);
+
+  it("eliminar una ruta con custodia en curso — sin admin/dispatcher falla con FORBIDDEN", async () => {
+    const { orgId, driverId, routeId } = await makeApprovedRoute("forbidden", 1);
+    await approveRoute(orgId, routeId, { userId: driverId, roles: ["admin"] });
+    await db
+      .update(routes)
+      .set({ status: "IN_TRANSIT", startedAt: new Date() })
+      .where(eq(routes.id, routeId));
+
+    const [pkg] = await db
+      .select({ id: packages.id })
+      .from(packages)
+      .where(eq(packages.routeId, routeId));
+    if (!pkg) throw new Error("falta el paquete de test");
+    await runPackageTransition({
+      packageId: pkg.id,
+      toStatus: "CARGADO",
+      actorId: driverId,
+      actorRoles: ["driver"],
+      metadata: { routeId },
+    });
+
+    await expect(
+      deleteRoute(orgId, routeId, { userId: driverId, roles: ["warehouse"] }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   }, 30_000);
 
   it("finalizar una ruta IN_TRANSIT la pasa a COMPLETED", async () => {

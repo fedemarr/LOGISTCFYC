@@ -555,6 +555,39 @@ export async function approveRoute(
  * operación segura — es un caso excepcional que le corresponde a
  * alguien mirando la situación real, no a un botón.
  */
+/** Paquetes que ya arrancaron custodia (§4/§9.4) pero no llegaron a un
+ * estado final — no hay transición legal directa de vuelta a
+ * GEOCODIFICADO desde acá, la única salida sancionada por la máquina de
+ * estados es cancelarlos con motivo (ver `deleteRoute`). */
+const MID_FLIGHT_PACKAGE_STATUSES = [
+  "CARGADO",
+  "EN_REPARTO",
+  "EN_DOMICILIO",
+  "FALLA_REPORTADA",
+  "REPROGRAMADO",
+  "DANIADO",
+] as const;
+
+/**
+ * Borrado lógico de una ruta — CUALQUIER estado (pedido de Fede: poder
+ * sacar de encima una ruta de prueba aunque ya haya arrancado o
+ * terminado, sin quedar trabado). El destino de cada paquete depende de
+ * dónde estaba parado cuando se borra la ruta:
+ *
+ *   - GEOCODIFICADO (ruta DRAFT/PROPOSED, nunca se aprobó): ya está en
+ *     el estado correcto, solo se suelta el `routeId`.
+ *   - ASIGNADO (aprobada pero nunca arrancó custodia): vuelve a
+ *     GEOCODIFICADO, libre para re-rutear — transición normal de
+ *     "reasignar" (§4).
+ *   - CARGADO/EN_REPARTO/EN_DOMICILIO/FALLA_REPORTADA/REPROGRAMADO/
+ *     DANIADO (a mitad de camino): se cancela con motivo — es la ÚNICA
+ *     transición legal desde ahí (§4: "estados de excepción, requieren
+ *     aprobación"), no hay forma de forzarlo de vuelta a GEOCODIFICADO
+ *     sin pasar por un admin que lo reabra explícitamente después.
+ *   - ENTREGADO/DEVUELTO/EXTRAVIADO/CANCELADO (ya resuelto): no se toca
+ *     ni el estado ni el `routeId` — es historial real, borrar la ruta
+ *     no debe hacer desaparecer de dónde salió ese paquete.
+ */
 export async function deleteRoute(
   orgId: string,
   routeId: string,
@@ -567,23 +600,31 @@ export async function deleteRoute(
       and(eq(routes.id, routeId), eq(routes.orgId, orgId), isNull(routes.deletedAt)),
     );
   if (!route) throw Errors.notFound("ruta no encontrada");
-  if (
-    route.status !== "DRAFT" &&
-    route.status !== "PROPOSED" &&
-    route.status !== "APPROVED"
-  ) {
-    throw Errors.conflict(
-      `la ruta está ${route.status} — ya tiene custodia o está en curso, no se puede eliminar`,
-    );
-  }
 
   const stopPackages = await db
     .select({ id: packages.id, status: packages.status })
     .from(packages)
     .where(eq(packages.routeId, routeId));
 
+  const midFlight = stopPackages.filter((p) =>
+    (MID_FLIGHT_PACKAGE_STATUSES as readonly string[]).includes(p.status),
+  );
+  if (
+    midFlight.length > 0 &&
+    !actor.roles.some((r) => r === "admin" || r === "dispatcher")
+  ) {
+    throw Errors.forbidden(
+      "esta ruta tiene paquetes con custodia en curso — solo admin/dispatcher pueden cancelarlos al eliminarla",
+    );
+  }
+
+  const freedIds: string[] = [];
   for (const p of stopPackages) {
-    if (p.status === "ASIGNADO") {
+    if (p.status === "GEOCODIFICADO") {
+      // Ruta todavía DRAFT/PROPOSED (nunca se aprobó) — el paquete ya
+      // está en el estado correcto, solo hay que soltarlo de la ruta.
+      freedIds.push(p.id);
+    } else if (p.status === "ASIGNADO") {
       await runPackageTransition({
         packageId: p.id,
         toStatus: "GEOCODIFICADO",
@@ -591,13 +632,25 @@ export async function deleteRoute(
         actorRoles: actor.roles,
         metadata: { reason: "route_deleted", routeId },
       });
+      freedIds.push(p.id);
+    } else if ((MID_FLIGHT_PACKAGE_STATUSES as readonly string[]).includes(p.status)) {
+      await runPackageTransition({
+        packageId: p.id,
+        toStatus: "CANCELADO",
+        actorId: actor.userId,
+        actorRoles: actor.roles,
+        metadata: {
+          reason: `Ruta ${String(route.routeNumber).padStart(3, "0")} eliminada manualmente`,
+        },
+      });
     }
+    // final (ENTREGADO/DEVUELTO/EXTRAVIADO/CANCELADO): se deja tal cual.
   }
-  if (stopPackages.length > 0) {
+  if (freedIds.length > 0) {
     await db
       .update(packages)
       .set({ routeId: null, bulkNumber: null, updatedAt: new Date() })
-      .where(eq(packages.routeId, routeId));
+      .where(inArray(packages.id, freedIds));
   }
 
   await db.transaction(async (tx) => {
@@ -615,7 +668,11 @@ export async function deleteRoute(
         actorRole: actor.roles.join(","),
         fromStatus: route.status,
         toStatus: route.status,
-        metadata: { freedPackages: stopPackages.length },
+        metadata: {
+          freedPackages: freedIds.length,
+          cancelledPackages: midFlight.length,
+          totalPackages: stopPackages.length,
+        },
       },
       tx,
     );
