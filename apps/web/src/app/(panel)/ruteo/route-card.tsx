@@ -262,7 +262,16 @@ export function RouteCard({
   return (
     <div
       className={cn(
-        "bg-surface-2 border-border relative overflow-hidden rounded-lg border transition-all",
+        // shrink-0 es la parte importante acá: al tener `overflow-hidden`
+        // (para las esquinas redondeadas), la tarjeta pierde su "altura
+        // mínima automática" (regla de flexbox: un item con overflow
+        // distinto de visible usa min-height 0 en vez de basarse en su
+        // contenido) — sin shrink-0, flexbox la encogía por debajo de su
+        // contenido real para que las 3 rutas entraran sin que la lista
+        // scrollee, cortando silenciosamente lo de más abajo (botones,
+        // "N paradas") en vez de dejar que el contenedor haga scroll como
+        // corresponde. Bug real, no solo de "ruta 001".
+        "bg-surface-2 border-border relative shrink-0 overflow-hidden rounded-lg border transition-all",
         hovered && "border-border-2 shadow-md",
       )}
       onMouseEnter={() => onHoverChange(route.id)}
