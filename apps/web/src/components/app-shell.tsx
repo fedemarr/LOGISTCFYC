@@ -146,7 +146,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               <Menu className="size-4" />
             </Button>
-            <span className="text-sm font-semibold">FYC</span>
+            <span className="text-sm font-semibold">FYM</span>
             <div className="ml-auto">
               <ThemeToggle />
             </div>
@@ -167,7 +167,7 @@ function Brand() {
         style={{ background: "linear-gradient(135deg, var(--route-1), var(--route-2))" }}
         aria-hidden
       />
-      <span className="text-sm font-bold tracking-tight">FYC</span>
+      <span className="text-sm font-bold tracking-tight">FYM</span>
     </div>
   );
 }

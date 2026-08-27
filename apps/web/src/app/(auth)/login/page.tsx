@@ -57,7 +57,7 @@ export default function LoginPage() {
             }}
             aria-hidden
           />
-          <CardTitle>FYC — Panel de Operaciones</CardTitle>
+          <CardTitle>FYM — Panel de Operaciones</CardTitle>
           <CardDescription>Ingresá con tu usuario de trabajo.</CardDescription>
         </CardHeader>
         <CardContent>
