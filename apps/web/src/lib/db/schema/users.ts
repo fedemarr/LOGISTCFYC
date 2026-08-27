@@ -16,6 +16,12 @@ export const users = pgTable("users", {
   email: text("email").notNull(),
   fullName: text("full_name").notNull(),
   phone: text("phone"),
+  /**
+   * Hash SHA-256 del token del QR de identificación del chofer (FYM). El
+   * QR autentica SOLO (sin login) — el token nunca se guarda en claro, solo
+   * su hash. `null` = al chofer aún no se le generó QR.
+   */
+  qrTokenHash: text("qr_token_hash"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

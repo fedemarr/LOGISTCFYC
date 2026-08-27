@@ -1,16 +1,14 @@
 import { boolean, doublePrecision, pgTable, timestamp, uuid } from "drizzle-orm/pg-core";
 import { organizations } from "./organizations";
 import { users } from "./users";
-import { routes } from "./routes";
+import { driverShifts } from "./driver-shifts";
 
 /**
- * PARTICIONADA POR MES sobre `recorded_at` (§7) — la partición real se crea
- * a mano en la migración SQL (`supabase/migrations/*_partitioning.sql`),
- * Drizzle no tiene soporte declarativo de `PARTITION BY`. La PK real a
- * nivel Postgres es compuesta `(id, recorded_at)` porque toda tabla
- * particionada por rango debe incluir la columna de partición en su PK;
- * acá se declara `id` solo por comodidad del query builder de Drizzle.
- * Retención: 90 días, después se agrega y se purga (FASE 13).
+ * Ubicación GPS del chofer, PARTE del sistema de control FYM.
+ *
+ * Particionada por mes sobre `recorded_at` — la partición se crea a mano en
+ * la migración SQL, Drizzle no tiene soporte declarativo de `PARTITION BY`.
+ * Retención: 90 días, después se agrega y se purga.
  */
 export const driverLocations = pgTable("driver_locations", {
   id: uuid("id").defaultRandom().notNull(),
@@ -20,7 +18,7 @@ export const driverLocations = pgTable("driver_locations", {
   driverId: uuid("driver_id")
     .notNull()
     .references(() => users.id),
-  routeId: uuid("route_id").references(() => routes.id),
+  shiftId: uuid("shift_id").references(() => driverShifts.id),
   lat: doublePrecision("lat").notNull(),
   lng: doublePrecision("lng").notNull(),
   accuracyM: doublePrecision("accuracy_m"),
@@ -30,6 +28,6 @@ export const driverLocations = pgTable("driver_locations", {
   isMoving: boolean("is_moving"),
   /** Hora del dispositivo — puede llegar minutos/horas después por offline. */
   recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),
-  /** Hora del servidor. Nunca confundir con `recordedAt` (§10). */
+  /** Hora del servidor. Nunca confundir con `recordedAt`. */
   receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
 });

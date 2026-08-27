@@ -19,8 +19,9 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FYC — Panel de Operaciones",
-  description: "Panel administrativo del sistema de logística de última milla",
+  title: "FYM — Panel de Control",
+  description: "Panel de control de choferes: GPS en vivo, zonas y alertas",
+  manifest: "/manifest.webmanifest",
 };
 
 export default function RootLayout({

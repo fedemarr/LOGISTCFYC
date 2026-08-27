@@ -1,5 +1,5 @@
 import { and, eq, isNull } from "drizzle-orm";
-import type { Role } from "@fyc/shared";
+import type { Role } from "@fym/shared";
 import { Errors } from "@/lib/api";
 import { db } from "@/lib/db";
 import { userRoles, users } from "@/lib/db/schema";

@@ -2,23 +2,26 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { AlertTriangle, Radio, Truck, PackageCheck } from "lucide-react";
 import { api, type MeResponse } from "@/lib/api/client";
 import { createSupabaseClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
 /**
- * Inicio del panel: tarjetas con los conteos de cada módulo (FASE 4).
- * Usa el `meta.total` de cada listado (pageSize=1) en vez de un endpoint
- * de stats dedicado.
+ * Inicio del panel FYM: KPIs de control del día.
+ * - Choferes en turno (frac de monitoreo en vivo).
+ * - Alertas de geocerca abiertas.
+ * - Avances vencidos (choferes que no reportaron a tiempo).
+ * - Paquetes en ruta hoy (suma de packageCount).
  */
 export default function DashboardPage() {
   const router = useRouter();
   const [orgName, setOrgName] = React.useState<string | null>(null);
-  const [isAdmin, setIsAdmin] = React.useState(false);
-  const [counts, setCounts] = React.useState<Record<string, number | null>>({});
+  const [fleet, setFleet] = React.useState<LiveFleetItem[] | null>(null);
+  const [openAlerts, setOpenAlerts] = React.useState<number | null>(null);
+  const [daily, setDaily] = React.useState<DailyRow[] | null>(null);
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
@@ -28,33 +31,18 @@ export default function DashboardPage() {
         const me = await api.get<MeResponse>("/api/auth/me");
         if (cancelled) return;
         setOrgName(me.orgName);
-        setIsAdmin(me.user.roles.includes("admin"));
 
-        const targets: [string, string][] = [
-          ["packages", "/api/packages?pageSize=1"],
-          ["clients", "/api/clients?pageSize=1"],
-          ["containers", "/api/containers?pageSize=1"],
-          ["vehicles", "/api/vehicles?pageSize=1"],
-          ...(me.user.roles.includes("admin")
-            ? ([["users", "/api/users?pageSize=1"]] as [string, string][])
-            : []),
-        ];
-        const results = await Promise.allSettled(
-          targets.map(async ([key, path]) => {
-            const data = await api.get<{ meta: { total: number } }>(path);
-            return [key, data.meta.total] as const;
-          }),
-        );
+        const [live, alerts, met] = await Promise.all([
+          api.get<{ fleet: LiveFleetItem[] }>("/api/monitoring/live"),
+          api.get<{ alerts: unknown[] }>("/api/alerts?status=OPEN"),
+          api.get<{ rows: DailyRow[] }>(
+            `/api/metricas?date=${new Date().toLocaleDateString("en-CA")}`,
+          ),
+        ]);
         if (cancelled) return;
-        const next: Record<string, number | null> = {};
-        for (const key of targets.map((t) => t[0])) next[key] = null;
-        for (const result of results) {
-          if (result.status === "fulfilled") {
-            const [key, total] = result.value;
-            next[key] = total;
-          }
-        }
-        setCounts(next);
+        setFleet(live.fleet);
+        setOpenAlerts(alerts.alerts.length);
+        setDaily(met.rows);
       } catch {
         if (!cancelled) {
           const supabase = createSupabaseClient();
@@ -71,50 +59,134 @@ export default function DashboardPage() {
     };
   }, [router]);
 
-  const cards: { key: string; label: string; href: string }[] = [
-    { key: "packages", label: "Paquetes", href: "/paquetes" },
-    { key: "clients", label: "Clientes", href: "/clientes" },
-    { key: "containers", label: "Contenedores", href: "/contenedores" },
-    { key: "vehicles", label: "Vehículos", href: "/vehiculos" },
-    ...(isAdmin ? [{ key: "users", label: "Usuarios", href: "/usuarios" }] : []),
+  const activeCount = fleet?.length ?? null;
+  const overdueCount = fleet?.filter((f) => f.reportOverdue || f.outside).length ?? null;
+  const packagesInRoute =
+    fleet?.reduce((acc, f) => acc + (f.shift?.packageCount ?? 0), 0) ?? null;
+  const deliveredToday = daily?.reduce((acc, r) => acc + r.delivered, 0) ?? null;
+
+  const cards: {
+    label: string;
+    value: number | null;
+    icon: React.ReactNode;
+    href: string;
+  }[] = [
+    {
+      label: "Choferes en turno",
+      value: activeCount,
+      icon: <Truck className="size-4" />,
+      href: "/monitoreo",
+    },
+    {
+      label: "Alertas abiertas",
+      value: openAlerts,
+      icon: <AlertTriangle className="size-4" />,
+      href: "/alertas",
+    },
+    {
+      label: "Avisos vencidos / afuera de zona",
+      value: overdueCount,
+      icon: <Radio className="size-4" />,
+      href: "/monitoreo",
+    },
+    {
+      label: "Paquetes en ruta hoy",
+      value: packagesInRoute,
+      icon: <PackageCheck className="size-4" />,
+      href: "/metricas",
+    },
+    {
+      label: "Entregados hoy (último aviso)",
+      value: deliveredToday,
+      icon: <PackageCheck className="size-4" />,
+      href: "/metricas",
+    },
   ];
 
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">
-          {loading ? <Skeleton className="h-7 w-56" /> : `Hola, bienvenido`}
+          {loading ? <Skeleton className="h-7 w-56" /> : "Panel de control FYM"}
         </h1>
         <p className="text-text-muted mt-1 text-sm">
-          {orgName ?? "Panel de Operaciones"} — vista general del sistema.
+          {orgName ?? "Control de choferes"} — estado del día en tiempo real.
         </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {cards.map((card) => (
           <Link
-            key={card.key}
+            key={card.label}
             href={card.href}
             className="focus-visible:ring-3 focus-visible:ring-ring/40 group rounded-lg outline-none"
           >
             <Card className="group-hover:border-primary/40 transition-colors">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardDescription>{card.label}</CardDescription>
-                  <ArrowUpRight className="text-text-muted size-4 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
-                </div>
-                <CardTitle className="font-data text-3xl">
-                  {loading ? (
-                    <Skeleton className="h-8 w-14" />
-                  ) : (
-                    (counts[card.key] ?? "—")
-                  )}
-                </CardTitle>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                <CardTitle className="text-base font-medium">{card.label}</CardTitle>
+                <span className="text-text-muted">{card.icon}</span>
               </CardHeader>
+              <CardContent className="pt-0">
+                {loading ? (
+                  <Skeleton className="h-8 w-14" />
+                ) : (
+                  <span className="font-data text-3xl">{card.value ?? "—"}</span>
+                )}
+              </CardContent>
             </Card>
           </Link>
         ))}
       </div>
+
+      {!loading && fleet && fleet.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">En la calle ahora</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="flex flex-col gap-2">
+              {fleet.map((f) => (
+                <li
+                  key={f.shift.id}
+                  className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
+                >
+                  <span className="font-medium">{f.driver.fullName}</span>
+                  <span className="text-text-muted">
+                    {f.zone.name}
+                    {f.gpsAgeMinutes !== null && f.gpsAgeMinutes > 5
+                      ? ` · sin GPS ${Math.round(f.gpsAgeMinutes)} min`
+                      : ""}
+                    {f.outside ? " · AFUERA de zona" : ""}
+                    {f.reportOverdue ? " · aviso vencido" : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
+}
+
+export interface LiveFleetItem {
+  shift: { id: string; packageCount: number; startedAt: string };
+  driver: { id: string; fullName: string; phone: string | null };
+  zone: { id: string; name: string; colorHex: string };
+  gpsAgeMinutes: number | null;
+  outside: boolean;
+  reportOverdue: boolean;
+  lastLocation: {
+    lat: number;
+    lng: number;
+    recordedAt: string;
+  } | null;
+}
+
+export interface DailyRow {
+  driver: { id: string; fullName: string };
+  zoneName: string;
+  delivered: number;
+  hoursWorkedHours: number;
+  alertCountOpen: number;
 }

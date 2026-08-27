@@ -15,25 +15,22 @@
  * Uso:
  *   pnpm smoke:browser                                    # contra localhost:3100
  *   SMOKE_BASE=https://tu-deploy.vercel.app pnpm smoke:browser
- *   SMOKE_EMAIL=... SMOKE_PASSWORD=... pnpm smoke:browser  # default: admin@fyc.demo / FYC123!
+ *   SMOKE_EMAIL=... SMOKE_PASSWORD=... pnpm smoke:browser  # default: admin@fym.demo / FYM123!
  */
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 
 const BASE = process.env.SMOKE_BASE ?? "http://localhost:3100";
-const EMAIL = process.env.SMOKE_EMAIL ?? "admin@fyc.demo";
-const PASSWORD = process.env.SMOKE_PASSWORD ?? "FYC123!";
+const EMAIL = process.env.SMOKE_EMAIL ?? "admin@fym.demo";
+const PASSWORD = process.env.SMOKE_PASSWORD ?? "FYM123!";
 const PAGES = [
   "/",
-  "/paquetes",
-  "/deposito",
-  "/ruteo",
-  "/operaciones",
+  "/choferes",
+  "/zonas",
+  "/alertas",
+  "/metricas",
   "/monitoreo",
   "/usuarios",
-  "/vehiculos",
-  "/clientes",
-  "/contenedores",
 ];
 
 function findChrome() {

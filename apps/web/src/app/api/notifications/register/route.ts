@@ -16,7 +16,7 @@ import {
 const bodySchema = z.object({
   token: z.string().min(20, "token push inválido"),
   deviceId: z.string().optional(),
-  platform: z.enum(["android", "ios"]).optional(),
+  platform: z.enum(["android", "ios", "web"]).optional(),
 });
 
 /**

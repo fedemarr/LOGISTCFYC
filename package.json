@@ -1,8 +1,8 @@
 {
-  "name": "fyc",
+  "name": "fym",
   "private": true,
   "version": "0.1.0",
-  "description": "Sistema de logística de última milla — panel web + app móvil",
+  "description": "FYM — sistema de control de choferes (panel web + PWA del chofer)",
   "type": "module",
   "packageManager": "pnpm@11.5.0",
   "engines": {
@@ -14,7 +14,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "test:ci": "turbo run test --filter=!@fyc/web",
+    "test:ci": "turbo run test --filter=!@fym/web",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\" --ignore-path .gitignore",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,css}\" --ignore-path .gitignore",
     "clean": "turbo run clean && rm -rf node_modules",

@@ -2,7 +2,7 @@
  * Tokens de diseño compartidos — PROMPT-FRONTEND-V2.md §2 (reemplaza el set
  * anterior de PROMPT-MAESTRO §13, ver docs/DECISIONES.md ADR-039). Tailwind
  * v4 es CSS-first: esto reemplaza al `tailwind.config.js` de v3.
- * Los consumidores hacen `@import "@fyc/config/tailwind/tokens.css";`
+ * Los consumidores hacen `@import "@fym/config/tailwind/tokens.css";`
  * desde su propio `globals.css`, antes de `@import "tailwindcss";` no,
  * DESPUÉS — ver apps/web/src/app/globals.css para el orden correcto.
  *

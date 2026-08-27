@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ROLE_LABELS, ROLES, type Role } from "@fyc/shared";
+import { ROLE_LABELS, ROLES, type Role } from "@fym/shared";
 import { api, type UserItem } from "@/lib/api/client";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
@@ -92,7 +92,7 @@ export function UserForm({ item }: { item?: UserItem }) {
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="nombre@fyc.demo"
+          placeholder="nombre@fym.demo"
         />
       </div>
 

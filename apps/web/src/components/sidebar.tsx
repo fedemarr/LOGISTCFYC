@@ -1,30 +1,30 @@
 "use client";
 
-import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { Role } from "@fyc/shared";
+import type { Role } from "@fym/shared";
 import {
-  Boxes,
-  Building2,
+  AlertTriangle,
   BarChart3,
+  Layers,
   LayoutDashboard,
-  LifeBuoy,
-  ListChecks,
-  Map,
-  Package,
+  MapPinned,
   Radio,
   Truck,
   Users,
-  Warehouse,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
- * Navegación del panel filtrada por rol (FASE 4 — sidebar por rol).
- * Fuente de la verdad de permisos: la matriz de PROMPT-MAESTRO §3
- * (admin todo; dispatcher/warehouse staff; driver solo su ruta).
+ * Navegación del panel FYM (control de choferes), filtrada por rol.
+ * - Inicio: KPIs del día.
+ * - Monitoreo: mapa con choferes en vivo (última posición + geocerca).
+ * - Choferes: alta/QR del chofer.
+ * - Zonas: CRUD de geocercas.
+ * - Alertas: cola de alertas de geocerca (llamar al chofer).
+ * - Métricas: resumen diario por chofer.
+ * - Usuarios: admin (alta de usuarios del panel y choferes).
  */
 const NAV_ITEMS: {
   href: string;
@@ -39,34 +39,28 @@ const NAV_ITEMS: {
     roles: ["admin", "dispatcher", "warehouse", "driver"],
   },
   {
-    href: "/paquetes",
-    label: "Paquetes",
-    icon: Package,
-    roles: ["admin", "dispatcher", "warehouse", "driver"],
-  },
-  {
-    href: "/deposito",
-    label: "Depósito",
-    icon: Warehouse,
-    roles: ["admin", "dispatcher", "warehouse"],
-  },
-  {
-    href: "/ruteo",
-    label: "Ruteo",
-    icon: Map,
-    roles: ["admin", "dispatcher", "warehouse"],
-  },
-  {
-    href: "/operaciones",
-    label: "Operaciones",
-    icon: ListChecks,
+    href: "/monitoreo",
+    label: "Monitoreo",
+    icon: Radio,
     roles: ["admin", "dispatcher"],
   },
   {
-    href: "/soporte",
-    label: "Soporte",
-    icon: LifeBuoy,
-    roles: ["admin", "dispatcher", "driver"],
+    href: "/choferes",
+    label: "Choferes",
+    icon: Truck,
+    roles: ["admin", "dispatcher"],
+  },
+  {
+    href: "/zonas",
+    label: "Zonas",
+    icon: MapPinned,
+    roles: ["admin", "dispatcher"],
+  },
+  {
+    href: "/alertas",
+    label: "Alertas",
+    icon: AlertTriangle,
+    roles: ["admin", "dispatcher"],
   },
   {
     href: "/metricas",
@@ -75,30 +69,17 @@ const NAV_ITEMS: {
     roles: ["admin", "dispatcher", "warehouse"],
   },
   {
-    href: "/monitoreo",
-    label: "Monitoreo",
-    icon: Radio,
+    href: "/usuarios",
+    label: "Usuarios",
+    icon: Users,
+    roles: ["admin"],
+  },
+  {
+    href: "/chofer",
+    label: "App del chofer",
+    icon: Layers,
     roles: ["admin", "dispatcher"],
   },
-  {
-    href: "/clientes",
-    label: "Clientes",
-    icon: Building2,
-    roles: ["admin", "dispatcher", "warehouse"],
-  },
-  {
-    href: "/contenedores",
-    label: "Contenedores",
-    icon: Boxes,
-    roles: ["admin", "dispatcher", "warehouse"],
-  },
-  {
-    href: "/vehiculos",
-    label: "Vehículos",
-    icon: Truck,
-    roles: ["admin", "dispatcher", "warehouse"],
-  },
-  { href: "/usuarios", label: "Usuarios", icon: Users, roles: ["admin"] },
 ];
 
 export function SidebarNav({

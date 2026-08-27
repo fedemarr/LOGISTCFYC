@@ -123,8 +123,8 @@ la partición `_default`, que no se purga automáticamente por mes.
 ## Seed de datos (`pnpm db:seed`, `apps/web/src/lib/db/seed/`)
 
 1 organización, 4 usuarios reales de Supabase Auth (uno por rol —
-`admin@fyc.demo` / `operaciones@fyc.demo` / `deposito@fyc.demo` /
-`chofer@fyc.demo`, contraseña `FYC123!`), 3 vehículos, 5 contenedores, 1 cliente,
+`admin@fym.demo` / `operaciones@fym.demo` / `deposito@fym.demo` /
+`chofer@fym.demo`, contraseña `FYM123!`), 3 vehículos, 5 contenedores, 1 cliente,
 1 operación del día, ~56 direcciones reales del GBA (coordenadas a nivel de centroide de
 localidad — sin geocoding real todavía, eso es FASE 5, marcadas `geocodeAccuracy:
 APPROXIMATE` honestamente) y 120 paquetes de prueba. Idempotente: correrlo de nuevo no

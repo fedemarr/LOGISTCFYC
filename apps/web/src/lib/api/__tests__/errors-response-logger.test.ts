@@ -1,8 +1,3 @@
-import {
-  ForbiddenTransitionError,
-  IllegalTransitionError,
-  PreconditionFailedError,
-} from "@fyc/state-machine";
 import { describe, expect, it, vi } from "vitest";
 import { AppError, Errors, errorToBody, toAppError } from "../errors";
 import { fail, jsonError, jsonOk, ok, paginationMeta } from "../response";
@@ -20,23 +15,6 @@ describe("AppError / Errors", () => {
   it("toAppError devuelve AppError sin tocar si ya lo es", () => {
     const err = Errors.forbidden();
     expect(toAppError(err)).toBe(err);
-  });
-
-  it("toAppError mapea los errores de la máquina de estados", () => {
-    expect(toAppError(new IllegalTransitionError("A", "B")).code).toBe(
-      "ILLEGAL_TRANSITION",
-    );
-    expect(toAppError(new IllegalTransitionError("A", "B")).httpStatus).toBe(409);
-
-    const forbidden = toAppError(new ForbiddenTransitionError("A", "B", ["driver"]));
-    expect(forbidden.code).toBe("FORBIDDEN_TRANSITION");
-    expect(forbidden.httpStatus).toBe(403);
-
-    const precondition = toAppError(
-      new PreconditionFailedError("A", "B", "falta evidencia"),
-    );
-    expect(precondition.code).toBe("PRECONDITION_FAILED");
-    expect(precondition.httpStatus).toBe(422);
   });
 
   it("toAppError mapea lo desconocido a INTERNAL_ERROR sin filtrar detalles", () => {

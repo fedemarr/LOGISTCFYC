@@ -1,9 +1,3 @@
-import {
-  ForbiddenTransitionError,
-  IllegalTransitionError,
-  PreconditionFailedError,
-} from "@fyc/state-machine";
-
 /**
  * Error de dominio del backend — respuesta estándar del sistema
  * (PROMPT-MAESTRO §14 FASE 3): `{ success, error: { code, message } }`.
@@ -69,23 +63,12 @@ function isAppError(value: unknown): value is AppError {
 }
 
 /**
- * Normaliza cualquier excepción a un `AppError`. Los errores del dominio
- * (máquina de estados) se mapean a códigos con su HTTP status; todo lo
- * desconocido cae en INTERNAL_ERROR (500) para no filtrar detalles de
- * implementación al cliente. El logging del detalle real lo hace el
- * handler, no acá.
+ * Normaliza cualquier excepción a un `AppError`. Lo desconocido cae en
+ * INTERNAL_ERROR (500) para no filtrar detalles de implementación al
+ * cliente. El logging del detalle real lo hace el handler, no acá.
  */
 export function toAppError(err: unknown): AppError {
   if (isAppError(err)) return err;
-  if (err instanceof IllegalTransitionError) {
-    return new AppError("ILLEGAL_TRANSITION", err.message, 409);
-  }
-  if (err instanceof ForbiddenTransitionError) {
-    return new AppError("FORBIDDEN_TRANSITION", err.message, 403);
-  }
-  if (err instanceof PreconditionFailedError) {
-    return new AppError("PRECONDITION_FAILED", err.message, 422);
-  }
   return Errors.internal();
 }
 

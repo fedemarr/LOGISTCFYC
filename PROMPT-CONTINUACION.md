@@ -131,7 +131,7 @@ enums de §7). 4 migraciones SQL aplicadas contra Supabase real en
 la conexión de admin), políticas RLS completas por `org_id`/rol en las 21 tablas, hardening
 de la tabla interna de tracking de migraciones. Seed idempotente (`pnpm db:seed` desde
 `apps/web`): 1 org, 4 usuarios reales de Supabase Auth (uno por rol, contraseña
-`FYC123!`, ver `apps/web/src/lib/db/seed/index.ts`), 3 vehículos, 5 contenedores, 1
+`FYM123!`, ver `apps/web/src/lib/db/seed/index.ts`), 3 vehículos, 5 contenedores, 1
 cliente, 1 operación, ~56 direcciones del GBA, 120 paquetes. Tests de integración contra la
 base real (`pnpm test` desde `apps/web`) verifican que un driver no ve paquetes/rutas de
 otro chofer y que nadie puede hacer UPDATE/DELETE sobre `events`. `docs/MODELO-DATOS.md`
@@ -146,8 +146,8 @@ ADR-013 a ADR-018, léelos si algo de esto te vuelve a pasar):**
    Pooler** (`aws-0-sa-east-1.pooler.supabase.com:5432`, usuario
    `postgres.xdhjxecrozcozcstndbr`), que es IPv4. Si alguna vez ves errores de DNS al correr
    `db:migrate`/`db:seed`/`pnpm test`, es esto — no re-investigues desde cero.
-2. **`drizzle-kit generate` no puede importar paquetes del workspace** (`@fyc/
-state-machine`, `@fyc/shared`) dentro de `drizzle.config.ts` o los archivos de
+2. **`drizzle-kit generate` no puede importar paquetes del workspace** (`@fym/
+state-machine`, `@fym/shared`) dentro de `drizzle.config.ts` o los archivos de
    schema — el import se resuelve a `undefined` en tiempo de generate (aunque funciona
    perfecto en Next.js/tsx/vitest). Por eso `enums.ts` tiene mirrors literales de
    `PACKAGE_STATUSES`/`ROLES` con un test de sincronización
@@ -170,7 +170,7 @@ tabla de transiciones fiel al diagrama de §4 + matriz de permisos de §3, preco
 `validateTransition()` puro y `transition()` por inyección de dependencias.
 
 Backend de `apps/web` completo: middleware de auth en `apps/web/src/middleware.ts` que
-valida el JWT de Supabase contra el Edge runtime y setea `x-fyc-user-id`;
+valida el JWT de Supabase contra el Edge runtime y setea `x-fym-user-id`;
 `requireUser`/`requireRole`; envelope de respuesta estándar `{ success, data, meta }` /
 `{ success, error: { code, message } }` (`lib/api/response.ts`); `AppError` + `toAppError`
 (`lib/api/errors.ts`); Zod en TODOS los inputs (`parseBody`/`parseQuery`/`parseParams`);
@@ -187,9 +187,9 @@ estado final (solo `admin`) vuelve a `GEOCODIFICADO`.
 
 ### Rebranding a FYC ✅ (commit `3c9bd4d`, desplegado y verificado)
 
-Rename completo `lastmile → fyc`: paquetes `@fyc/*`, header interno `x-fyc-user-id`,
-bundle id de la app móvil `com.fyc.mobile`, emails de seed `@fyc.demo` (contraseña
-`FYC123!`; los usuarios viejos `@lastmile.demo` siguen en Supabase Auth pero ya no están
+Rename completo `lastmile → fyc`: paquetes `@fym/*`, header interno `x-fym-user-id`,
+bundle id de la app móvil `com.fyc.mobile`, emails de seed `@fym.demo` (contraseña
+`FYM123!`; los usuarios viejos `@lastmile.demo` siguen en Supabase Auth pero ya no están
 en el seed). Se preservó intencionalmente la tabla interna `_lastmile_migrations` en la DB
 desplegada (renombrarla re-aplicaría migraciones). Prueba del deploy:
 `https://web-2842cb7py-fmcodes-projects.vercel.app` responde 200.
@@ -232,7 +232,7 @@ desplegada (renombrarla re-aplicaría migraciones). Prueba del deploy:
 2. **Base UI 1.7 no tiene `Slot` ni `asChild`** (eso es de Radix/shadcn). Para polimorfismo
    se usa el prop `render` (ej. `<Button render={<Link href="..." />}>`). Un snippet de
    shadcn con `asChild`/`@base-ui/react/slot` rompe el typecheck — traducilo a `render`.
-3. **`@fyc/shared` barrel:** el `export * from "./constants/roles.js"` (con `.js`) hace
+3. **`@fym/shared` barrel:** el `export * from "./constants/roles.js"` (con `.js`) hace
    fallar a webpack de Next (no lo resuelve a `.ts`). Se cambió a extensionless
    (`./constants/roles`). No reintroduzcas `.js` en los barrels de los packages.
 4. **`eq(col, null)` en Drizzle tipa mal** — usar `isNull(col)` (los `[id]` y listados de
@@ -354,7 +354,7 @@ ajuste manual → aprobar → etiquetas):
   todavía), aprobar, e imprimir. **Sin el pulido visual ni el mapa MapLibre del mockup** —
   es la base funcional sobre la que se aplica el rediseño de §6.
 - 22 tests de integración nuevos contra Supabase real (`route-planning.test.ts`,
-  `routing.test.ts`, `labels.test.ts`) + 12 tests puros de `@fyc/geo`.
+  `routing.test.ts`, `labels.test.ts`) + 12 tests puros de `@fym/geo`.
 
 **Gotchas nuevos de FASE 6 — no los vuelvas a pisar:**
 
@@ -389,7 +389,7 @@ actuales de Expo Router/expo-sqlite para SDK 57 en vez de asumir versiones vieja
 - `POST /api/sync` — motor de sincronización offline-first (§12), dedupe por
   `idempotencyKey` contra `sync_queue` (tabla que ya existía desde FASE 2, sin usar hasta
   ahora) ANTES de aplicar cualquier efecto. Un solo `operationType` implementado
-  (`GPS_PING`, en `@fyc/shared`) — alcanza para probar el patrón completo sin depender de
+  (`GPS_PING`, en `@fym/shared`) — alcanza para probar el patrón completo sin depender de
   reglas de negocio de FASE 9/10/12 que todavía no existen. Agregar uno nuevo: sumarlo a
   `SYNC_OPERATION_TYPES` + un `case` en `lib/services/sync.ts`.
 - `GET /api/driver/route/current` — "descarga completa de la ruta a local". Acepta rutas
@@ -446,7 +446,7 @@ actuales de Expo Router/expo-sqlite para SDK 57 en vez de asumir versiones vieja
 4. **`pnpm exec expo install <paquete>`, nunca `pnpm add` a mano, para dependencias
    nativas** — resuelve la versión exacta compatible con el SDK (57.0.0 acá). `pnpm add`
    directo (sin `expo install`) está bien solo para paquetes puramente JS sin código nativo
-   (`zustand`, `@supabase/supabase-js`, `@fyc/shared`).
+   (`zustand`, `@supabase/supabase-js`, `@fym/shared`).
 5. **`main` en `package.json` es `"expo-router/entry"`**, no un `index.ts` propio — no lo
    vuelvas a cambiar a mano, rompe toda la navegación.
 
@@ -465,7 +465,7 @@ teléfono y paquetes reales puede confirmar. No lo des por cerrado sin eso.
 - `resolveDestination()`/`scanPackage()` (`lib/services/ingestion.ts`) ahora implementan el
   escalón OCR completo de la cascada (§2) — antes era `deferred` (ADR-029). Acepta
   `ocrLines?: string[]` opcional en `ScanRequest`, corre `parseOcrAddressLines()`
-  (`@fyc/shared`, NUEVO) si `BARCODE_PAYLOAD`/`ADDRESS_MEMORY` no resolvieron. Siempre
+  (`@fym/shared`, NUEVO) si `BARCODE_PAYLOAD`/`ADDRESS_MEMORY` no resolvieron. Siempre
   `confidence: MEDIUM`, nunca `HIGH` — es una heurística sobre texto de OCR con ruido.
 - `POST /api/operations/:id/scan` acepta `ocrLines` en el body — pero `apps/mobile` NO lo
   usa en su flujo actual (ver el punto siguiente, es a propósito).
@@ -586,7 +586,7 @@ pnpm smoke:browser                                      # contra localhost:3100
 # SMOKE_BASE=https://<tu-deploy>.vercel.app pnpm smoke:browser
 ```
 
-Loguea con `admin@fyc.demo`/`FYC123!` y visita las 8 pantallas del panel, fallando si hay
+Loguea con `admin@fym.demo`/`FYM123!` y visita las 8 pantallas del panel, fallando si hay
 `pageerror`/`console.error`/request fallido. Ver ADR-040 — así se encontraron dos bugs
 reales de producción (Toaster montado como hermano en vez de ancestro, `apiFetch`
 descartando `meta` de la paginación) que llevaban dormidos desde FASE 4 porque nada en este
@@ -718,7 +718,7 @@ LOADED`** que hoy no existe en el código (ver ADR-041 punto 3 y `lib/services/d
   (el conteo simple NO detecta un bulto que se mezcló entre rutas).
 - Bloqueo de inicio de ruta con diferencia abierta; override de `dispatcher` con motivo
   obligatorio (mismo patrón que las excepciones de la máquina de estados, `requireExceptionReason`
-  en `@fyc/state-machine`).
+  en `@fym/state-machine`).
 - Checklist de validaciones de inicio de ruta (§9.4): custodia sin diferencias, vehículo
   `AVAILABLE`, permisos de ubicación (incluido background), GPS con precisión <50m,
   optimización de batería desactivada para la app, ruta descargada completa a SQLite

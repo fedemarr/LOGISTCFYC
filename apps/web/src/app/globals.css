@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import "@fyc/config/tailwind/tokens.css";
+@import "@fym/config/tailwind/tokens.css";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
@@ -7,7 +7,7 @@
 
 /*
  * Tokens de shadcn/ui remapeados directo a los tokens de diseño de
- * PROMPT-FRONTEND-V2 §2 (`@fyc/config/tailwind/tokens.css`) — NUNCA a
+ * PROMPT-FRONTEND-V2 §2 (`@fym/config/tailwind/tokens.css`) — NUNCA a
  * través de un `:root { --primary: var(--primary); }` intermedio: como
  * las dos reglas apuntan a `:root` con la misma especificidad, esa
  * declaración se auto-referencia a sí misma (ciclo de custom property),

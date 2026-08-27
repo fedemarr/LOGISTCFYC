@@ -8,25 +8,15 @@ import { db } from "@/lib/db";
  * tabla append-only `events` (ver `schema/events.ts`, §7: "EL CORAZÓN DEL
  * SISTEMA").
  *
- * Extraído como helper compartido para que la transición de paquete
- * (`state-machine.ts`), la custodia (FASE 9) y el inicio de ruta no
- * dupliquen la misma llamada SQL con sus tipos. SIEMPRE se llama dentro de
+ * Helpers compartido para los flujos FYM (turnos, zonas, alertas) sin
+ * duplicar la misma llamada SQL con sus tipos. SIEMPRE se llama dentro de
  * una transacción — si el evento no se puede escribir, la operación se
- * revierte completa (§4).
+ * revierte completa.
  */
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-export const DOMAIN_ENTITY_TYPES = [
-  "PACKAGE",
-  "ROUTE",
-  "DELIVERY",
-  "INCIDENT",
-  "CUSTODY",
-  "USER",
-  "VEHICLE",
-  "OPERATION",
-] as const;
+export const DOMAIN_ENTITY_TYPES = ["SHIFT", "ZONE", "ALERT", "USER"] as const;
 export type DomainEntityType = (typeof DOMAIN_ENTITY_TYPES)[number];
 
 export interface DomainEventParams {

@@ -61,10 +61,10 @@ corre en el Edge runtime y valida la sesión ANTES de llegar al handler:
 
 - Envía el JWT de Supabase en el header `Authorization: Bearer <token>`.
 - El middleware lo verifica contra Supabase Auth (`auth.getUser`).
-- Si es válido, setea el header interno `x-fyc-user-id` y deja pasar;
+- Si es válido, setea el header interno `x-fym-user-id` y deja pasar;
   si no, responde `401 UNAUTHORIZED` con el envelope estándar, sin ejecutar
   el handler.
-- El middleware **siempre sobreescribe** cualquier `x-fyc-user-id` que
+- El middleware **siempre sobreescribe** cualquier `x-fym-user-id` que
   mande el cliente (no se puede impostar una identidad ajena).
 
 ### Autorización por rol (handler)
@@ -114,7 +114,7 @@ Sin Redis (PROMPT-MAESTRO §5) — ventana fija atómica sobre la tabla
 ## 6. El patrón de un Route Handler (copiar y pegar esto)
 
 ```ts
-import { PACKAGE_STATUSES } from "@fyc/state-machine";
+import { PACKAGE_STATUSES } from "@fym/state-machine";
 import { z } from "zod";
 import {
   consumeRateLimit, jsonError, jsonOk, parseBody, parseParams,
@@ -304,7 +304,7 @@ Respuesta: `{ packageId, internalCode, trackingCode, status, resolution:
 - `ocrLines` (FASE 8): líneas de texto ya reconocidas por OCR on-device
   (nunca se manda una foto para que el servidor la lea). Si `BARCODE_PAYLOAD`
   y `ADDRESS_MEMORY` no resolvieron, se intenta `parseOcrAddressLines()`
-  (`@fyc/shared`) sobre esas líneas — resuelve a `source: "OCR",
+  (`@fym/shared`) sobre esas líneas — resuelve a `source: "OCR",
 confidence: "MEDIUM"` (nunca `HIGH`). **`apps/mobile` no usa este campo
   en su flujo actual** — hace el OCR y el parseo local, se lo muestra al
   operador para confirmar, y manda el resultado ya confirmado a
@@ -353,7 +353,7 @@ operación `CLOSED` y devuelve el reporte de reconciliación:
 ## 11. Ruteo (FASE 6)
 
 Estrategia híbrida de §8: clustering geográfico capacitado + DBSCAN de
-outliers (`@fyc/geo`, gratis, local) → secuenciación con matriz de
+outliers (`@fym/geo`, gratis, local) → secuenciación con matriz de
 distancias reales (`lib/services/routing.ts`, cacheada, Google Routes API)
 → ajuste humano (`lib/services/route-planning.ts`) → aprobar (congela
 `bulk_number`) → etiquetas (`lib/services/labels.ts`). El algoritmo
@@ -441,7 +441,7 @@ dispositivo al encolar la acción localmente — reenviar el mismo lote
 clave contra `sync_queue` antes de aplicar ningún efecto.
 
 `operationType` — únicamente `"GPS_PING"` por ahora (`SYNC_OPERATION_TYPES`
-en `@fyc/shared`; agregar uno nuevo es sumarlo ahí + un `case` en
+en `@fym/shared`; agregar uno nuevo es sumarlo ahí + un `case` en
 `lib/services/sync.ts`). Payload de `GPS_PING`:
 `{ lat, lng, accuracyM?, speedMps?, heading?, batteryLevel?, isMoving?, routeId? }`.
 

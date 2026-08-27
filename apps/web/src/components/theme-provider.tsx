@@ -7,7 +7,7 @@ import { ThemeProvider as NextThemesProvider } from "next-themes";
  * Tema claro/oscuro (PROMPT-FRONTEND-V2 §2) — oscuro es el default
  * ("el trabajo de depósito es nocturno"), ambos son de primera clase.
  * `attribute="data-theme"` matchea los selectores de
- * `@fyc/config/tailwind/tokens.css` (`[data-theme="light"]` /
+ * `@fym/config/tailwind/tokens.css` (`[data-theme="light"]` /
  * `[data-theme="dark"]`), no la convención `.dark` de shadcn.
  */
 export function ThemeProvider({ children }: { children: React.ReactNode }) {

@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import type { Role } from "@fyc/shared";
+import type { Role } from "@fym/shared";
 import { db } from "@/lib/db";
 import { users, userRoles } from "@/lib/db/schema";
 import { Errors } from "./errors";
@@ -11,14 +11,14 @@ import { Errors } from "./errors";
  * directos del cliente (JWT de Supabase), NO al backend. Esta es la
  * autorización real para los Route Handlers.
  *
- * `requireUser`/`requireRole` confían en el header `x-fyc-user-id`
+ * `requireUser`/`requireRole` confían en el header `x-fym-user-id`
  * que setea `apps/web/src/middleware.ts` después de verificar la sesión de
  * Supabase (el middleware SIEMPRE sobrescribe el header que manda el
  * cliente). Si el middleware no corre (ruta fuera del matcher), no hay
  * header → 401. Frontera de confianza documentada en docs/API.md.
  */
 
-const USER_ID_HEADER = "x-fyc-user-id";
+const USER_ID_HEADER = "x-fym-user-id";
 
 export interface AuthContext {
   userId: string;
@@ -71,4 +71,13 @@ export async function requireRole(
     );
   }
   return ctx;
+}
+
+/**
+ * Convierte un `AuthContext` (de `requireRole`) en un actor para los
+ * helpers de los servicios FYM, que esperan `{ actorId, actorRole }` (una
+ * cadena uniendo los roles con coma para `log_event`).
+ */
+export function actorFrom(ctx: AuthContext): { actorId: string; actorRole: string } {
+  return { actorId: ctx.userId, actorRole: ctx.roles.join(",") };
 }

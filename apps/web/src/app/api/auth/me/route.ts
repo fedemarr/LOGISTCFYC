@@ -8,7 +8,7 @@ import { organizations, userRoles, users } from "@/lib/db/schema";
  * lo llama al entrar para resolver roles y `orgId` y así renderizar el
  * sidebar por rol y autorizar las vistas. Reusa el mismo `requireUser` de
  * la API: el middleware de `/api/*` ya validó el JWT y puso el
- * `x-fyc-user-id`.
+ * `x-fym-user-id`.
  */
 export async function GET(request: Request): Promise<Response> {
   try {

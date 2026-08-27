@@ -1,3 +1,3 @@
-import { baseConfig } from "@fyc/config/eslint/base";
+import { baseConfig } from "@fym/config/eslint/base";
 
 export default baseConfig;

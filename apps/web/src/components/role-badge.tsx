@@ -1,4 +1,4 @@
-import { ROLE_LABELS, type Role } from "@fyc/shared";
+import { ROLE_LABELS, type Role } from "@fym/shared";
 import { Badge } from "./ui/badge";
 
 const ROLE_VARIANTS: Record<Role, "default" | "info" | "neutral" | "success"> = {

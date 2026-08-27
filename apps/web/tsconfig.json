@@ -1,5 +1,5 @@
 {
-  "extends": "@fyc/config/typescript/nextjs",
+  "extends": "@fym/config/typescript/nextjs",
   "compilerOptions": {
     "target": "ES2017",
     "paths": {

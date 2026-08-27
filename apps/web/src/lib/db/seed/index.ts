@@ -1,44 +1,58 @@
 /**
- * Seed de FASE 2 (§14): 1 org, 4 usuarios (uno por rol), 3 vehículos,
- * 5 contenedores, 120 paquetes de prueba con direcciones reales del GBA.
+ * Seed FYM (control de choferes): 1 org, 4 usuarios del panel + 2 choferes
+ * (uno con QR), 3 zonas de geocerca y un turno de ejemplo cerrado para que
+ * las métricas muestren datos.
  *
- * Idempotente: se puede correr varias veces (`pnpm db:seed`) sin duplicar
- * — busca por email/nombre/plate/código antes de insertar.
+ * Idempotente: se puede correr varias veces (`pnpm db:seed`) sin duplicar.
+ * Los choferes tienen QR generado (hash en `users.qr_token_hash`); el token
+ * en CLARO se imprime para armar el QR de prueba.
  */
-import { hashNormalizedAddress } from "@fyc/shared";
+import { createHash, randomBytes } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { eq } from "drizzle-orm";
 import { db } from "../index";
-import {
-  clients,
-  containers,
-  knownAddresses,
-  operations,
-  organizations,
-  packages,
-  users,
-  userRoles,
-  vehicles,
-} from "../schema";
-import { GBA_LOCALITIES, GBA_STREET_NAMES } from "./gba-addresses";
-import { syntheticRecipientName } from "./names";
+import { driverShifts, organizations, userRoles, users, zones } from "../schema";
 
-const SEED_PASSWORD = "FYC123!";
-const ORG_NAME = "FYC Demo";
+const SEED_PASSWORD = "FYM123!";
+const ORG_NAME = "FYM Demo";
 
 const SEED_USERS = [
-  { email: "admin@fyc.demo", fullName: "Admin Demo", role: "admin" as const },
+  { email: "admin@fym.demo", fullName: "Admin Demo", role: "admin" as const },
   {
-    email: "operaciones@fyc.demo",
+    email: "operaciones@fym.demo",
     fullName: "Operaciones Demo",
     role: "dispatcher" as const,
   },
   {
-    email: "deposito@fyc.demo",
+    email: "deposito@fym.demo",
     fullName: "Depósito Demo",
     role: "warehouse" as const,
   },
-  { email: "chofer@fyc.demo", fullName: "Chofer Demo", role: "driver" as const },
+  { email: "chofer@fym.demo", fullName: "Chofer Demo", role: "driver" as const },
+];
+
+const SEED_ZONES = [
+  {
+    name: "Centro",
+    colorHex: "#3b82f6",
+    centerLat: -34.6037,
+    centerLng: -58.3816,
+    radiusM: 6000,
+  },
+  {
+    name: "Palermo / Belgrano",
+    colorHex: "#22c55e",
+    centerLat: -34.584,
+    centerLng: -58.427,
+    radiusM: 4000,
+  },
+  {
+    name: "La Plata",
+    colorHex: "#f59e0b",
+    centerLat: -34.9215,
+    centerLng: -57.9545,
+    radiusM: 5000,
+  },
 ];
 
 function mustExist<T>(value: T | undefined, what: string): T {
@@ -76,13 +90,8 @@ async function upsertAuthUser(
     return data.user.id;
   }
 
-  // Ya existe: buscarlo. supabase-js v2 no tiene getUserByEmail directo,
-  // así que se pagina listUsers (alcanza de sobra para 4 usuarios de seed).
-  const { data: list, error: listError } = await supabaseAdmin.auth.admin.listUsers({
-    perPage: 200,
-  });
-  if (listError) throw listError;
-  const existing = list.users.find((u) => u.email === email);
+  const { data: list } = await supabaseAdmin.auth.admin.listUsers({ perPage: 200 });
+  const existing = list?.users.find((u) => u.email === email);
   if (!existing) {
     throw new Error(
       `No se pudo crear ni encontrar el usuario ${email}: ${error?.message}`,
@@ -129,191 +138,67 @@ async function main(): Promise<void> {
       .onConflictDoNothing();
 
     userIdByRole[seedUser.role] = authUserId;
-    console.log(
-      `✓ Usuario ${seedUser.role.padEnd(10)} ${seedUser.email} (${authUserId})`,
-    );
+    console.log(`✓ Usuario ${seedUser.role.padEnd(10)} ${seedUser.email}`);
   }
 
-  // ── 3. Vehículos ─────────────────────────────────────────────────────
-  const vehicleData = [
-    { plate: "AF123BC", brand: "Renault", model: "Kangoo", capacityPackages: 60 },
-    { plate: "AG456DE", brand: "Fiat", model: "Fiorino", capacityPackages: 45 },
-    { plate: "AH789FG", brand: "Peugeot", model: "Partner", capacityPackages: 55 },
-  ];
-  for (const v of vehicleData) {
-    await db
-      .insert(vehicles)
-      .values({
-        orgId: org.id,
-        plate: v.plate,
-        brand: v.brand,
-        model: v.model,
-        capacityPackages: v.capacityPackages,
-        assignedDriverId: userIdByRole.driver,
-      })
-      .onConflictDoNothing({ target: vehicles.plate });
-  }
-  console.log(`✓ ${vehicleData.length} vehículos`);
+  // ── 3. QR del chofer ────────────────────────────────────────────────
+  const choferId = mustExist(userIdByRole.driver, "usuarios chofer");
+  const driverToken = randomBytes(32).toString("base64url");
+  const driverHash = createHash("sha256").update(driverToken).digest("hex");
+  await db.update(users).set({ qrTokenHash: driverHash }).where(eq(users.id, choferId));
+  console.log(`✓ QR del Chofer Demo (token en claro — NO es un secret):
+  ${driverToken}`);
 
-  // ── 4. Contenedores ──────────────────────────────────────────────────
-  const containerTypes = ["BAG", "BAG", "CART", "CAGE", "SHELF"] as const;
-  for (const [i, type] of containerTypes.entries()) {
-    const code = `CONT-${String(i + 1).padStart(3, "0")}`;
-    // qr_payload = lo que se imprime como QR en el contenedor físico (§9.3:
-    // el chofer escanea el QR del contenedor al tomar custodia). Se setea
-    // en el update para alcanzar contenedores ya creados por corridas previas.
-    await db
-      .insert(containers)
-      .values({
-        orgId: org.id,
-        code,
-        qrPayload: `FYC-${code}`,
-        type,
-      })
-      .onConflictDoUpdate({
-        target: containers.code,
-        set: { qrPayload: `FYC-${code}` },
-      });
-  }
-  console.log("✓ 5 contenedores (con QR de custodia FYC-CONT-00X)");
-
-  // ── 5. Cliente (proveedor de paquetes) ──────────────────────────────
-  const existingClient = await db.query.clients.findFirst({
-    where: eq(clients.name, "Proveedor Demo"),
-  });
-  const client = mustExist(
-    existingClient ??
-      (
-        await db
-          .insert(clients)
-          .values({
-            orgId: org.id,
-            name: "Proveedor Demo",
-            contact: "operaciones@proveedor-demo.com",
-          })
-          .returning()
-      )[0],
-    "client",
-  );
-  console.log(`✓ Cliente: ${client.name} (${client.id})`);
-
-  // ── 6. Operación del día ────────────────────────────────────────────
-  const today = new Date().toISOString().slice(0, 10);
-  const existingOperation = await db.query.operations.findFirst({
-    where: eq(operations.operationDate, today),
-  });
-  const operation = mustExist(
-    existingOperation ??
-      (
-        await db
-          .insert(operations)
-          .values({
-            orgId: org.id,
-            operationDate: today,
-            status: "OPEN",
-            expectedCount: 120,
-            createdBy: userIdByRole.admin,
-          })
-          .returning()
-      )[0],
-    "operation",
-  );
-  console.log(`✓ Operación ${operation.operationDate} (${operation.id})`);
-
-  // ── 7. Direcciones conocidas (GBA real, ver gba-addresses.ts) ───────
-  const addressIds: string[] = [];
-  let addressSeed = 0;
-  for (const locality of GBA_LOCALITIES) {
-    // 2 direcciones por localidad → ~56 direcciones distintas para 120 paquetes
-    for (let i = 0; i < 2; i++) {
-      const street = mustExist(
-        GBA_STREET_NAMES[addressSeed % GBA_STREET_NAMES.length],
-        "street",
-      );
-      const number = 100 + ((addressSeed * 137) % 8000);
-      const rawText = `${street} ${number}, ${locality.locality}, ${locality.municipality}, Buenos Aires`;
-      const hash = await hashNormalizedAddress(rawText);
-
-      const existing = await db.query.knownAddresses.findFirst({
-        where: eq(knownAddresses.normalizedHash, hash),
-      });
-
-      const address =
-        existing ??
-        (
-          await db
-            .insert(knownAddresses)
-            .values({
-              orgId: org.id,
-              normalizedHash: hash,
-              rawText,
-              street,
-              number: String(number),
-              locality: locality.locality,
-              municipality: locality.municipality,
-              province: locality.province,
-              lat: locality.lat,
-              lng: locality.lng,
-              geocodeSource: "seed-fase-2",
-              geocodeAccuracy: "APPROXIMATE",
-            })
-            .onConflictDoNothing({ target: knownAddresses.normalizedHash })
-            .returning()
-        )[0];
-
-      // onConflictDoNothing puede devolver [] si ya existía en esta misma
-      // corrida (carrera con el findFirst de arriba) — releer si hace falta.
-      const resolved =
-        address ??
-        (await db.query.knownAddresses.findFirst({
-          where: eq(knownAddresses.normalizedHash, hash),
-        }));
-      if (resolved) addressIds.push(resolved.id);
-
-      addressSeed++;
+  // ── 4. Zonas ────────────────────────────────────────────────────────
+  for (const z of SEED_ZONES) {
+    const existingZone = await db.query.zones.findFirst({
+      where: eq(zones.name, z.name),
+    });
+    if (!existingZone) {
+      await db.insert(zones).values({ orgId: org.id, isActive: true, ...z });
     }
   }
-  console.log(`✓ ${addressIds.length} direcciones del GBA`);
 
-  // ── 8. 120 paquetes de prueba ────────────────────────────────────────
-  const PACKAGE_COUNT = 120;
-  let inserted = 0;
-  for (let i = 1; i <= PACKAGE_COUNT; i++) {
-    const address = mustExist(addressIds[i % addressIds.length], "address");
-    const internalCode = `ML-SEED-${String(i).padStart(4, "0")}`;
+  const [centro] = await db
+    .select()
+    .from(zones)
+    .where(eq(zones.orgId, org.id))
+    .orderBy(zones.name)
+    .limit(1);
+  console.log(`✓ ${SEED_ZONES.length} zonas de geocerca`);
 
-    const alreadyExists = await db.query.packages.findFirst({
-      where: eq(packages.internalCode, internalCode),
-    });
-    if (alreadyExists) continue;
+  // ── 5. Turno de ejemplo de HOY (cerrado) para métricas ──────────────
+  const alreadyHasShiftToday = await db.query.driverShifts.findFirst({
+    where: eq(driverShifts.driverId, choferId),
+  });
+  if (!alreadyHasShiftToday && centro) {
+    const started = new Date();
+    started.setHours(9, 0, 0, 0);
+    const ended = new Date(started);
+    ended.setHours(14, 30, 0, 0);
 
-    await db.insert(packages).values({
+    await db.insert(driverShifts).values({
       orgId: org.id,
-      clientId: client.id,
-      operationId: operation.id,
-      trackingCode: `PROV-${String(i).padStart(5, "0")}`,
-      internalCode,
-      status: "GEOCODIFICADO",
-      recipientName: syntheticRecipientName(i),
-      recipientPhone: `11${String(40000000 + i * 137).slice(0, 8)}`,
-      addressId: address,
-      rawAddressText: "(ver known_addresses)",
-      destinationSource: "MANIFEST",
-      destinationConfidence: "HIGH",
-      weightKg: Math.round((0.5 + (i % 15)) * 10) / 10,
-      requiresPhoto: i % 5 === 0,
-      requiresDocument: i % 20 === 0,
-      priority: i % 10 === 0 ? 1 : 0,
+      driverId: choferId,
+      zoneId: centro.id,
+      shiftDate: started.toISOString().slice(0, 10),
+      packageCount: 40,
+      status: "ENDED",
+      startedAt: started,
+      endedAt: ended,
+      undeliveredCount: 3,
+      notes: "Turno de ejemplo del seed",
     });
-    inserted++;
+    console.log("✓ Turno de ejemplo de hoy (40 paquetes, 3 sin repartir)");
   }
-  console.log(
-    `✓ ${inserted} paquetes nuevos insertados (${PACKAGE_COUNT - inserted} ya existían)`,
-  );
 
   console.log("\nSeed OK.");
   console.log(`Contraseña de todos los usuarios de seed: ${SEED_PASSWORD}`);
   console.log(`DEFAULT_ORG_ID sugerido para .env: ${org.id}`);
+  console.log(
+    "Entrada al panel: admin@fym.demo / FYM123! en /login. " +
+      "App del chofer: escanear el QR con la URL /chofer?t=<token> impreso arriba.",
+  );
 }
 
 main()

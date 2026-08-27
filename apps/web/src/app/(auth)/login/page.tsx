@@ -71,7 +71,7 @@ export default function LoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@fyc.demo"
+                placeholder="admin@fym.demo"
               />
             </div>
             <div className="flex flex-col gap-1.5">

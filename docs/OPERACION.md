@@ -68,9 +68,9 @@ Las migraciones viven en `supabase/migrations/` (SQL plano, el que escribe
 Drizzle). Para aplicar la última al vuelo:
 
 ```bash
-pnpm --filter @fyc/web db:generate   # si hay cambios de schema → SQL nuevo
-pnpm --filter @fyc/web db:migrate    # aplica pendientes a producción
-pnpm --filter @fyc/web db:verify     # chequea integridad referencial
+pnpm --filter @fym/web db:generate   # si hay cambios de schema → SQL nuevo
+pnpm --filter @fym/web db:migrate    # aplica pendientes a producción
+pnpm --filter @fym/web db:verify     # chequea integridad referencial
 ```
 
 Regla: **nunca** editar una migración ya aplicada en producción; agregar una
@@ -140,15 +140,15 @@ video de uso de ubicación en background (causa #1 de rechazo).
 | Deploy de Vercel falla en build | Falta una env var de Production                 | Completar en Settings → Env Vars y redeploy                                   |
 | `DATABASE_URL` no conecta       | Se usó la conexión directa (IPv6-only)          | Usar Session Pooler (`aws-0-<region>.pooler.supabase.com`), ADR-017           |
 | CI cuelga en `pnpm test`        | Web corre tests de integración que necesitan DB | Ya se partió: CI corre `test:ci` + `test:unit`; la integración se corre local |
-| Smoke API falla                 | Cambio rompió un endpoint                       | Correr `pnpm --filter @fyc/web smoke:api` y revisar Sentry                    |
+| Smoke API falla                 | Cambio rompió un endpoint                       | Correr `pnpm --filter @fym/web smoke:api` y revisar Sentry                    |
 | Cron maintenance no corre       | `CRON_SECRET` distinto entre Vercel y el check  | Sincronizar el secret; ver §4                                                 |
 | APK no actualiza URL            | Env de Expo embebida en el build                | Rebuildear con `eas build` (el APK ya instalado no se actualiza solo)         |
 
 ## 9. Checklist de release
 
 1. `pnpm lint` y `pnpm typecheck` verdes.
-2. `pnpm test:ci` + `pnpm --filter @fyc/web test:unit` verdes.
-3. Smoke de los endpoints tocados (`pnpm --filter @fyc/web smoke:api`) y smoke
+2. `pnpm test:ci` + `pnpm --filter @fym/web test:unit` verdes.
+3. Smoke de los endpoints tocados (`pnpm --filter @fym/web smoke:api`) y smoke
    de browser sobre el preview de Vercel.
 4. Migraciones nuevas aplicadas y verificadas (`db:verify`).
 5. Push a `main` → verificar en Vercel que el deploy de producción quedó OK.

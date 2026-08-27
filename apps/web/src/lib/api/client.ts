@@ -1,4 +1,4 @@
-import type { Role } from "@fyc/shared";
+import type { Role } from "@fym/shared";
 import { createSupabaseClient } from "@/lib/supabase/client";
 
 /**

@@ -13,8 +13,8 @@ if (!SUPABASE_URL || !ANON_KEY || !DATABASE_URL) {
   process.exit(1);
 }
 
-const admin = await supabaseLogin("admin@fyc.demo", "FYC123!");
-const driver = await supabaseLogin("chofer@fyc.demo", "FYC123!");
+const admin = await supabaseLogin("admin@fym.demo", "FYM123!");
+const driver = await supabaseLogin("chofer@fym.demo", "FYM123!");
 
 console.log("✓ admin token:", admin.slice(0, 12) + "...");
 console.log("✓ driver token:", driver.slice(0, 12) + "...");

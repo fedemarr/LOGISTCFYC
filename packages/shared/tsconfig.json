@@ -1,5 +1,5 @@
 {
-  "extends": "@fyc/config/typescript/base",
+  "extends": "@fym/config/typescript/base",
   "compilerOptions": {
     "composite": false,
     "rootDir": "src",
