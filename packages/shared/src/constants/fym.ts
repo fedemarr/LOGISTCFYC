@@ -7,8 +7,15 @@
  * tiempo real y alertas de geocerca.
  */
 
-/** Estado de un turno de chofer. */
-export const SHIFT_STATUSES = ["ACTIVE", "ENDED"] as const;
+/**
+ * Estado de un turno de chofer. `PENDING` (pedido de Fede: "pago x
+ * paquete", necesita confirmar que la cantidad declarada es real) — el
+ * turno existe pero todavía no arrancó de verdad: espera que la IA lea
+ * la captura de Flex y confirme sola, o que alguien del depósito la
+ * revise a mano si la IA no está segura / no coincide. Recién en
+ * `ACTIVE` corre la geocerca y valen los reportes de avance.
+ */
+export const SHIFT_STATUSES = ["PENDING", "ACTIVE", "ENDED"] as const;
 export type ShiftStatus = (typeof SHIFT_STATUSES)[number];
 
 /** Tipos de alerta generadas por el sistema de control. */

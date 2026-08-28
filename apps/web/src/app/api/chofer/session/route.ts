@@ -2,7 +2,7 @@ import { z } from "zod";
 import { jsonError, jsonOk, parseBody, toAppError } from "@/lib/api";
 import { Errors } from "@/lib/api/errors";
 import { hashQrToken } from "@/lib/services/driver-qr";
-import { getActiveShiftForDriver } from "@/lib/services/shifts";
+import { getCurrentShiftForDriver } from "@/lib/services/shifts";
 import { db } from "@/lib/db";
 import { userRoles, users } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
@@ -49,7 +49,7 @@ export async function POST(request: Request): Promise<Response> {
       throw Errors.forbidden("el usuario no tiene perfil de chofer");
     }
 
-    const activeShift = await getActiveShiftForDriver(first.id, first.orgId);
+    const currentShift = await getCurrentShiftForDriver(first.id, first.orgId);
 
     return jsonOk({
       user: {
@@ -58,9 +58,13 @@ export async function POST(request: Request): Promise<Response> {
         fullName: first.fullName,
         phone: first.phone,
       },
-      hasActiveShift: !!activeShift,
-      activeShift: activeShift
-        ? { id: activeShift.shift.id, startedAt: activeShift.shift.startedAt }
+      hasActiveShift: !!currentShift,
+      activeShift: currentShift
+        ? {
+            id: currentShift.shift.id,
+            startedAt: currentShift.shift.startedAt,
+            status: currentShift.shift.status,
+          }
         : null,
       now: new Date().toISOString(),
     });

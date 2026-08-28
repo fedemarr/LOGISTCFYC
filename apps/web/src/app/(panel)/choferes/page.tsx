@@ -2,13 +2,13 @@
 
 import * as React from "react";
 import QRCode from "qrcode";
-import { QrCode, RefreshCw, Truck } from "lucide-react";
+import { Check, QrCode, RefreshCw, ShieldAlert, Truck, X } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { PageHeader } from "@/components/page-header";
 import { ErrorState, TableSkeleton } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   DialogRoot,
   DialogContent,
@@ -29,6 +29,10 @@ import { useToast } from "@/components/ui/toast";
  * CHOFERES (FYM) — lista de choferes y generación del QR de identificación.
  * El QR codifica la URL de la PWA con el token (`{origin}/chofer?t=…`) que
  * se guarda hasheado en `users.qr_token_hash`. Autentica SOLO.
+ *
+ * También los turnos PENDING (pedido de Fede: "pago x paquete") — la IA
+ * ya intentó confirmar sola la cantidad declarada contra la captura de
+ * Flex; lo que llega acá es lo que la IA no pudo resolver sola.
  */
 
 interface DriverItem {
@@ -40,6 +44,20 @@ interface DriverItem {
   hasQr: boolean;
 }
 
+interface PendingShift {
+  id: string;
+  packageCount: number;
+  startedAt: string;
+  driver: { id: string; fullName: string };
+  zone: { id: string; name: string };
+  aiAnalysis: {
+    detectedCount: number | null;
+    confidence: "high" | "medium" | "low";
+    reasoning: string;
+  } | null;
+  screenshotUrl: string | null;
+}
+
 export default function ChoferesPage() {
   const { toast } = useToast();
   const [drivers, setDrivers] = React.useState<DriverItem[]>([]);
@@ -48,6 +66,73 @@ export default function ChoferesPage() {
   const [qrDriver, setQrDriver] = React.useState<DriverItem | null>(null);
   const [qrDataUrl, setQrDataUrl] = React.useState<string | null>(null);
   const [qrGenerating, setQrGenerating] = React.useState(false);
+
+  const [pending, setPending] = React.useState<PendingShift[]>([]);
+  const [pendingBusyId, setPendingBusyId] = React.useState<string | null>(null);
+
+  function loadPending() {
+    return api
+      .get<{ items: PendingShift[] }>("/api/choferes/shifts")
+      .then((data) => setPending(data.items))
+      .catch(() => {
+        // no bloquea el resto de la pantalla
+      });
+  }
+
+  async function handleConfirmShift(shift: PendingShift) {
+    setPendingBusyId(shift.id);
+    try {
+      await api.post(`/api/choferes/shifts/${shift.id}/confirm`);
+      toast({
+        title: `Turno de ${shift.driver.fullName} confirmado`,
+        variant: "success",
+      });
+      await loadPending();
+    } catch (err) {
+      toast({
+        title: err instanceof Error ? err.message : "No se pudo confirmar el turno",
+        variant: "error",
+      });
+    } finally {
+      setPendingBusyId(null);
+    }
+  }
+
+  async function handleRejectShift(shift: PendingShift) {
+    setPendingBusyId(shift.id);
+    try {
+      await api.post(`/api/choferes/shifts/${shift.id}/reject`, {});
+      toast({
+        title: `Turno de ${shift.driver.fullName} rechazado`,
+        variant: "success",
+      });
+      await loadPending();
+    } catch (err) {
+      toast({
+        title: err instanceof Error ? err.message : "No se pudo rechazar el turno",
+        variant: "error",
+      });
+    } finally {
+      setPendingBusyId(null);
+    }
+  }
+
+  React.useEffect(() => {
+    let cancelled = false;
+    api
+      .get<{ items: PendingShift[] }>("/api/choferes/shifts")
+      .then((data) => {
+        if (!cancelled) setPending(data.items);
+      })
+      .catch(() => {
+        // no bloquea el resto de la pantalla
+      });
+    const interval = window.setInterval(() => void loadPending(), 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   async function load() {
     try {
@@ -111,6 +196,76 @@ export default function ChoferesPage() {
         title="Choferes"
         description="Generá el QR de identificación que el chofer escanea para ingresar a la app (autentica sin usuario ni clave)."
       />
+
+      {pending.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldAlert className="text-status-warning size-4" />
+              Turnos pendientes de confirmar ({pending.length})
+            </CardTitle>
+            <p className="text-text-muted text-sm">
+              La IA no confirmó sola la cantidad declarada — revisá la captura y confirmá
+              o rechazá.
+            </p>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {pending.map((shift) => (
+              <div
+                key={shift.id}
+                className="flex flex-col gap-3 rounded-md border p-3 sm:flex-row sm:items-start"
+              >
+                {shift.screenshotUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- URL firmada de Supabase Storage
+                  <img
+                    src={shift.screenshotUrl}
+                    alt={`Captura de Flex de ${shift.driver.fullName}`}
+                    className="h-32 w-24 shrink-0 rounded-md border object-cover"
+                  />
+                ) : (
+                  <div className="text-text-muted flex h-32 w-24 shrink-0 items-center justify-center rounded-md border text-xs">
+                    sin captura
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">{shift.driver.fullName}</p>
+                  <p className="text-text-muted text-xs">
+                    {shift.zone.name} · declaró {shift.packageCount} paquetes
+                  </p>
+                  {shift.aiAnalysis ? (
+                    <p className="text-text-muted mt-1 text-xs">
+                      IA: {shift.aiAnalysis.detectedCount ?? "no pudo contar"} detectados
+                      (confianza {shift.aiAnalysis.confidence}) —{" "}
+                      {shift.aiAnalysis.reasoning}
+                    </p>
+                  ) : (
+                    <p className="text-text-muted mt-1 text-xs">
+                      La IA todavía no está configurada — confirmación manual.
+                    </p>
+                  )}
+                  <div className="mt-2 flex gap-2">
+                    <Button
+                      size="sm"
+                      disabled={pendingBusyId === shift.id}
+                      onClick={() => void handleConfirmShift(shift)}
+                    >
+                      <Check className="size-4" /> Confirmar
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={pendingBusyId === shift.id}
+                      onClick={() => void handleRejectShift(shift)}
+                    >
+                      <X className="size-4" /> Rechazar
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="overflow-hidden">
         {loading && !drivers.length && <TableSkeleton columns={4} rows={5} />}

@@ -1,56 +1,71 @@
 import { Errors } from "@/lib/api/errors";
 
 /**
- * Storage de evidencia (fotos de entregas e incidencias) — PROMPT-MAESTRO
- * §9.6, bucket privado `delivery-evidence` (creado en la migración 0008).
+ * Storage de las capturas de Flex (pedido de Fede: "pago x paquete",
+ * confirmar que la cantidad declarada es real — ver
+ * `services/package-verification.ts` y el bucket `flex-screenshots`,
+ * creado en la migración 0012).
  *
- * Las fotos se suben SOLO desde la app del chofer con el token de sesión
- * (policy de RLS `auth.role() = 'authenticated'` + `bucket_id =
- * 'delivery-evidence'`); el servidor NUNCA recibe el binario, solo el
- * `path` del objeto (que persiste en `deliveries.photo_urls` /
- * `incidents.photo_urls`). Para leerlas, el panel pide un URL firmado acá
- * con la service role key — el navegador nunca ve esa key.
- *
- * El `path` dentro del bucket es `{orgId}/{routeId}/{date}/{uuid}.jpg`,
- * que es lo que autoriza la policy de lectura del bucket (solo
- * autenticados, cualquier ruta dentro del bucket).
+ * El chofer de FYM NO tiene sesión de Supabase Auth (autentica con el QR,
+ * `requireDriver`), así que subir directo desde el navegador con RLS no
+ * aplica acá — todo pasa por el backend con la service role key, que
+ * bypasea RLS. El bucket es privado (sin policies de lectura): para
+ * mostrar una captura en el panel hay que firmar su URL acá.
  */
 
-const BUCKET = "delivery-evidence";
-
-export function getBucketName(): string {
-  return BUCKET;
-}
+const BUCKET = "flex-screenshots";
 
 function supabaseUrl(): string {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!url) {
-    throw Errors.internal("NEXT_PUBLIC_SUPABASE_URL no está configurada");
-  }
+  if (!url) throw Errors.internal("NEXT_PUBLIC_SUPABASE_URL no está configurada");
   return url.replace(/\/$/, "");
 }
 
 function serviceRoleKey(): string {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!key) {
-    throw Errors.internal("SUPABASE_SERVICE_ROLE_KEY no está configurada");
-  }
+  if (!key) throw Errors.internal("SUPABASE_SERVICE_ROLE_KEY no está configurada");
   return key;
 }
 
 /**
- * URL firmada de un objeto del bucket de evidencia. El path puede ser
- * relativo (`org/route/date/uuid.jpg`) o absoluto (`delivery-evidence/...`);
- * si ya es una URL completa se devuelve tal cual (compatibilidad con datos
- * viejos).
+ * Sube una captura (base64, sin el prefijo `data:...;base64,`) al bucket
+ * privado. Devuelve el `path` interno (lo que se guarda en
+ * `driver_shifts.flex_screenshot_path`), no una URL — el bucket es
+ * privado, no hay URL pública que guardar.
  */
-export async function signEvidenceUrl(
+export async function uploadFlexScreenshot(
+  orgId: string,
+  driverId: string,
+  base64Data: string,
+  mimeType: string,
+): Promise<string> {
+  const ext =
+    mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
+  const path = `${orgId}/${driverId}/${Date.now()}.${ext}`;
+  const binary = Buffer.from(base64Data, "base64");
+
+  const res = await fetch(`${supabaseUrl()}/storage/v1/object/${BUCKET}/${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${serviceRoleKey()}`,
+      "Content-Type": mimeType,
+      "x-upsert": "false",
+    },
+    body: binary,
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw Errors.internal(`no se pudo subir la captura (HTTP ${res.status}): ${body}`);
+  }
+  return path;
+}
+
+/** URL firmada (temporal) para que el panel muestre una captura. */
+export async function signFlexScreenshotUrl(
   path: string,
   expiresInSeconds = 3600,
 ): Promise<string> {
-  const clean = path.startsWith("http") ? path : path.replace(/^delivery-evidence\//, "");
-
-  const res = await fetch(`${supabaseUrl()}/storage/v1/object/sign/${BUCKET}/${clean}`, {
+  const res = await fetch(`${supabaseUrl()}/storage/v1/object/sign/${BUCKET}/${path}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${serviceRoleKey()}`,
@@ -58,25 +73,15 @@ export async function signEvidenceUrl(
     },
     body: JSON.stringify({ expiresIn: expiresInSeconds }),
   });
-
   if (!res.ok) {
-    throw Errors.internal(`no se pudo firmar el URL de evidencia (HTTP ${res.status})`);
+    throw Errors.internal(`no se pudo firmar el URL de la captura (HTTP ${res.status})`);
   }
-  const data = (await res.json()) as { signedURL?: string } | { error?: string };
-  if ("error" in data && data.error) {
-    throw Errors.internal(`storage no firmó el URL: ${data.error}`);
-  }
-  const signed = (data as { signedURL?: string }).signedURL;
-  if (!signed) {
-    throw Errors.internal("storage no devolvió signedURL");
-  }
-  return signed.startsWith("http") ? signed : `${supabaseUrl()}${signed}`;
-}
-
-/** URL firmada de todas las fotos de una evidencia (multi-foto, §9.6). */
-export async function signEvidenceUrls(
-  paths: string[],
-  expiresInSeconds = 3600,
-): Promise<string[]> {
-  return Promise.all(paths.map((p) => signEvidenceUrl(p, expiresInSeconds)));
+  const data = (await res.json()) as { signedURL?: string; error?: string };
+  if (data.error) throw Errors.internal(`storage no firmó el URL: ${data.error}`);
+  if (!data.signedURL) throw Errors.internal("storage no devolvió signedURL");
+  // `signedURL` viene relativo a `/storage/v1` (ej. "/object/sign/…"), NO
+  // relativo a la raíz del proyecto — concatenar directo con `supabaseUrl()`
+  // da una URL que 404 (bug real, encontrado viendo la preview rota en
+  // /choferes: el <img> nunca cargaba).
+  return `${supabaseUrl()}/storage/v1${data.signedURL}`;
 }

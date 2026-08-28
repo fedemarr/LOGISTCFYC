@@ -12,7 +12,7 @@ import { pgEnum } from "drizzle-orm/pg-core";
  */
 const ROLES_MIRROR = ["admin", "dispatcher", "warehouse", "driver"] as const;
 
-const SHIFT_STATUS_MIRROR = ["ACTIVE", "ENDED"] as const;
+const SHIFT_STATUS_MIRROR = ["PENDING", "ACTIVE", "ENDED"] as const;
 
 const ZONE_ALERT_TYPE_MIRROR = ["LEFT_ZONE"] as const;
 

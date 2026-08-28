@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Clock, Flag, Layers, Package, Play, Radio, Send } from "lucide-react";
+import { Camera, Clock, Flag, Layers, Package, Play, Radio, Send } from "lucide-react";
 import {
   driverApi,
   getStoredToken,
@@ -28,7 +28,7 @@ import { useToast } from "@/components/ui/toast";
 interface Session {
   user: { id: string; email: string; fullName: string; phone: string | null };
   hasActiveShift: boolean;
-  activeShift: { id: string; startedAt: string } | null;
+  activeShift: { id: string; startedAt: string; status: "PENDING" | "ACTIVE" } | null;
 }
 
 interface Zone {
@@ -45,6 +45,41 @@ interface ShiftState {
   packageCount: number;
   startedAt: string;
   zoneId: string;
+  status: "PENDING" | "ACTIVE";
+}
+
+/** Comprime una imagen (canvas, máx 1600px de lado, JPEG 75%) antes de
+ * mandarla en el body del POST — una captura de cámara sin comprimir
+ * puede pesar varios MB y pegarle al límite de tamaño de la función
+ * serverless. */
+async function compressScreenshot(
+  file: File,
+): Promise<{ base64: string; mimeType: string }> {
+  const bitmap = await createImageBitmap(file);
+  const maxDim = 1600;
+  const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+  const w = Math.max(1, Math.round(bitmap.width * scale));
+  const h = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("no se pudo preparar la imagen");
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  const blob = await new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("no se pudo comprimir la imagen"))),
+      "image/jpeg",
+      0.75,
+    ),
+  );
+  const base64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string).split(",")[1] ?? "");
+    reader.onerror = () => reject(reader.error as unknown as Error);
+    reader.readAsDataURL(blob);
+  });
+  return { base64, mimeType: "image/jpeg" };
 }
 
 export default function ChoferApp() {
@@ -78,6 +113,11 @@ function ChoferAppInner() {
   const [zoneName, setZoneName] = React.useState("");
   const [packageCount, setPackageCount] = React.useState("");
   const [starting, setStarting] = React.useState(false);
+  // Captura de Flex (pedido de Fede: "pago x paquete") — la IA la lee y
+  // confirma sola si coincide, si no queda pendiente de que alguien del
+  // depósito la revise a mano.
+  const [screenshotPreview, setScreenshotPreview] = React.useState<string | null>(null);
+  const [screenshotFile, setScreenshotFile] = React.useState<File | null>(null);
 
   // Avance
   const [packagesDone, setPackagesDone] = React.useState("");
@@ -92,9 +132,10 @@ function ChoferAppInner() {
     lastReportAtRef.current = lastReportAt;
   }, [lastReportAt]);
 
-  // Cierre
+  // Cierre — se pide lo ENTREGADO (lo que importa para el pago, "pago x
+  // paquete") y se deriva cuántos faltaron, no al revés.
   const [closing, setClosing] = React.useState(false);
-  const [undelivered, setUndelivered] = React.useState("");
+  const [delivered, setDelivered] = React.useState("");
 
   // GPS
   const [gpsStatus, setGpsStatus] = React.useState<"off" | "on" | "error">("off");
@@ -139,6 +180,7 @@ function ChoferAppInner() {
             packageCount: 0,
             startedAt: data.activeShift.startedAt,
             zoneId: "",
+            status: data.activeShift.status,
           });
           shiftRef.current = { zoneId: "", active: true };
         }
@@ -185,7 +227,10 @@ function ChoferAppInner() {
         if (cancelled) return;
         setZones(zonesData.zones);
         if (reportData.shift) {
-          setShift({ ...reportData.shift });
+          // Este endpoint solo devuelve turnos ACTIVE (ver
+          // `getActiveShiftForDriver` en el backend) — si estuviera
+          // PENDING acá da null y el polling de abajo se encarga.
+          setShift({ ...reportData.shift, status: "ACTIVE" });
           shiftRef.current = { zoneId: reportData.shift.zoneId, active: true };
           setLastReportAt(
             reportData.lastReport
@@ -204,9 +249,54 @@ function ChoferAppInner() {
     };
   }, [token, session]);
 
+  // ── 3.5. Turno PENDING: esperar confirmación (IA o depósito) ──
+  React.useEffect(() => {
+    if (!token || shift?.status !== "PENDING") return;
+    let cancelled = false;
+    const interval = window.setInterval(() => {
+      void (async () => {
+        try {
+          const data = await driverApi<{
+            shift: {
+              id: string;
+              zoneId: string;
+              packageCount: number;
+              startedAt: string;
+              status: "PENDING" | "ACTIVE";
+            } | null;
+          }>("/api/chofer/shifts");
+          if (cancelled) return;
+          if (!data.shift) {
+            // Lo rechazaron — vuelve a la pantalla de arranque.
+            setShift(null);
+            shiftRef.current = { zoneId: "", active: false };
+            toast({
+              title:
+                "El depósito no confirmó el turno — revisá la cantidad y probá de nuevo.",
+              variant: "error",
+            });
+            return;
+          }
+          if (data.shift.status === "ACTIVE") {
+            setShift({ ...data.shift });
+            shiftRef.current = { zoneId: data.shift.zoneId, active: true };
+            setLastReportAt(new Date(data.shift.startedAt));
+            toast({ title: "Turno confirmado — ¡a repartir!", variant: "success" });
+          }
+        } catch {
+          // Sigue esperando — no corta el polling por un error de red suelto.
+        }
+      })();
+    }, 4_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [token, shift?.status, toast]);
+
   // ── 4. GPS en vivo + temporizador del turno ──
   React.useEffect(() => {
-    if (!shift || !token) return;
+    if (!shift || shift.status !== "ACTIVE" || !token) return;
 
     const startGps = () => {
       if (watchId.current !== null) return;
@@ -279,26 +369,47 @@ function ChoferAppInner() {
   }, []);
 
   async function handleStart() {
-    if (!zoneName.trim() || !packageCount) return;
+    if (!zoneName.trim() || !packageCount || !screenshotFile) return;
     setStarting(true);
     try {
+      const { base64, mimeType } = await compressScreenshot(screenshotFile);
       const data = await driverApi<{ shift: ShiftState }>("/api/chofer/shifts", {
         method: "POST",
         body: JSON.stringify({
           zoneName: zoneName.trim(),
           packageCount: Number(packageCount),
+          flexScreenshotBase64: base64,
+          flexScreenshotMimeType: mimeType,
         }),
       });
       setShift(data.shift);
-      shiftRef.current = { zoneId: data.shift.zoneId, active: true };
+      shiftRef.current = {
+        zoneId: data.shift.zoneId,
+        active: data.shift.status === "ACTIVE",
+      };
       setLastReportAt(new Date(data.shift.startedAt));
       setTimer("00:00:00");
-      toast({ title: "Turno iniciado", variant: "success" });
+      setScreenshotFile(null);
+      setScreenshotPreview(null);
+      toast({
+        title:
+          data.shift.status === "ACTIVE"
+            ? "Turno confirmado por IA — ¡a repartir!"
+            : "Turno arrancado — esperando que el depósito confirme la cantidad.",
+        variant: "success",
+      });
     } catch (err) {
       toast({ title: errMessage(err), variant: "error" });
     } finally {
       setStarting(false);
     }
+  }
+
+  function handleScreenshotChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] ?? null;
+    setScreenshotFile(file);
+    if (screenshotPreview) URL.revokeObjectURL(screenshotPreview);
+    setScreenshotPreview(file ? URL.createObjectURL(file) : null);
   }
 
   async function handleReport() {
@@ -328,21 +439,25 @@ function ChoferAppInner() {
 
   async function handleEnd() {
     if (!shift) return;
+    const deliveredCount = Number(delivered);
+    const missing = Math.max(0, shift.packageCount - deliveredCount);
     setClosing(true);
     try {
       await driverApi("/api/chofer/shifts/end", {
         method: "POST",
-        body: JSON.stringify({
-          undeliveredCount: Number(undelivered) || 0,
-          notes: undefined,
-        }),
+        body: JSON.stringify({ undeliveredCount: missing, notes: undefined }),
       });
-      toast({ title: "Turno cerrado. ¡Buen laburo!", variant: "success" });
+      toast({
+        title:
+          `Turno cerrado — duró ${timer}. Entregaste ${deliveredCount}/${shift.packageCount}` +
+          (missing > 0 ? `, faltaron ${missing}.` : "."),
+        variant: "success",
+      });
       setShift(null);
       setGeofence(null);
       setLastReportAt(null);
       setLastPackagesDone(null);
-      setUndelivered("");
+      setDelivered("");
     } catch (err) {
       toast({ title: errMessage(err), variant: "error" });
     } finally {
@@ -430,11 +545,36 @@ function ChoferAppInner() {
                   placeholder="¿Con cuántos salís?"
                 />
               </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="screenshot" className="flex items-center gap-1.5">
+                  <Camera className="size-4" /> Captura de Flex
+                </Label>
+                <p className="text-text-muted text-xs">
+                  Subí la captura de tus envíos de Flex — confirma que la cantidad es
+                  real.
+                </p>
+                <Input
+                  id="screenshot"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleScreenshotChange}
+                />
+                {screenshotPreview && (
+                  // eslint-disable-next-line @next/next/no-img-element -- preview local (object URL)
+                  <img
+                    src={screenshotPreview}
+                    alt="Vista previa de la captura de Flex"
+                    className="mt-1 max-h-40 rounded-md border object-contain"
+                  />
+                )}
+              </div>
               <Button
-                disabled={starting || !zoneName.trim() || !packageCount}
+                disabled={
+                  starting || !zoneName.trim() || !packageCount || !screenshotFile
+                }
                 onClick={() => void handleStart()}
               >
-                <Play /> {starting ? "Ubicando zona…" : "Arrancar turno"}
+                <Play /> {starting ? "Confirmando…" : "Arrancar turno"}
               </Button>
             </CardContent>
           </Card>
@@ -446,8 +586,23 @@ function ChoferAppInner() {
         </>
       )}
 
+      {/* Turno PENDING: esperando que la IA o el depósito confirmen */}
+      {!loadingSession && token && shift && shift.status === "PENDING" && (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
+            <Clock className="text-primary size-10 animate-pulse" />
+            <p className="font-medium">Esperando confirmación</p>
+            <p className="text-text-muted text-sm">
+              Declaraste {shift.packageCount} paquetes. La IA está revisando la captura —
+              si no le cierra el número, alguien del depósito la revisa a mano. Esta
+              pantalla se actualiza sola.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Turno activo */}
-      {!loadingSession && token && shift && (
+      {!loadingSession && token && shift && shift.status === "ACTIVE" && (
         <>
           <Card>
             <CardHeader>
@@ -550,24 +705,47 @@ function ChoferAppInner() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Cerrar turno</CardTitle>
+              <p className="text-text-muted text-sm">
+                Llevás {timer} de turno. Contá cuántos entregaste de verdad — es lo que se
+                paga.
+              </p>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="undelivered" className="flex items-center gap-1.5">
-                  <Package className="size-4" /> Paquetes sin repartir
+                <Label htmlFor="delivered" className="flex items-center gap-1.5">
+                  <Package className="size-4" /> Paquetes entregados
                 </Label>
                 <Input
-                  id="undelivered"
+                  id="delivered"
                   type="number"
                   min={0}
-                  value={undelivered}
-                  onChange={(e) => setUndelivered(e.target.value)}
-                  placeholder="0"
+                  max={shift.packageCount}
+                  value={delivered}
+                  onChange={(e) => setDelivered(e.target.value)}
+                  placeholder={`¿Cuántos de ${shift.packageCount} entregaste?`}
                 />
               </div>
+              {delivered !== "" && !Number.isNaN(Number(delivered)) && (
+                <p
+                  className={
+                    Number(delivered) < shift.packageCount
+                      ? "text-status-warning text-sm"
+                      : "text-text-muted text-sm"
+                  }
+                >
+                  {Number(delivered) < shift.packageCount
+                    ? `Faltan ${shift.packageCount - Number(delivered)} de ${shift.packageCount}.`
+                    : "Entregaste todos. 👍"}
+                </p>
+              )}
               <Button
                 variant="destructive"
-                disabled={closing}
+                disabled={
+                  closing ||
+                  delivered === "" ||
+                  Number(delivered) < 0 ||
+                  Number(delivered) > shift.packageCount
+                }
                 onClick={() => void handleEnd()}
               >
                 <Flag /> {closing ? "Cerrando…" : "Terminar turno"}

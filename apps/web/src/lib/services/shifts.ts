@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne } from "drizzle-orm";
 import { Errors } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import {
@@ -10,7 +10,9 @@ import {
   users,
 } from "@/lib/db/schema";
 import { logDomainEvent } from "@/lib/services/events";
+import { verifyPackageScreenshot } from "@/lib/services/package-verification";
 import { findOrCreateZoneByName } from "@/lib/services/zones";
+import { uploadFlexScreenshot } from "@/lib/storage";
 import { REPORT_INTERVAL_HOURS, REPORT_LATE_MINUTES } from "@fym/shared";
 import { haversineDistanceMeters } from "@fym/geo";
 import type { DriverAuthContext } from "@/lib/services/driver-qr";
@@ -19,11 +21,18 @@ import type { DriverAuthContext } from "@/lib/services/driver-qr";
  * TURNOS DEL CHOFER (FYM)
  *
  * Un turno = jornada de un chofer en un día asignada a una zona. El chofer
- * lo arranca con `{ zoneId | zoneName, packageCount }` (sale del depósito
- * con ese número de paquetes), hace reportes de avance cada 2-3 h y lo
- * cierra con los que quedaron sin repartir. `zoneName` (pedido de Fede: el
- * chofer ESCRIBE la zona en vez de elegir de una lista) geocodifica y
- * crea/reusa la zona al vuelo — ver `findOrCreateZoneByName`.
+ * lo arranca con `{ zoneId | zoneName, packageCount, captura de Flex }`
+ * (sale del depósito con ese número de paquetes), hace reportes de avance
+ * cada 2-3 h y lo cierra con los que entregó de verdad. `zoneName` (pedido
+ * de Fede: el chofer ESCRIBE la zona en vez de elegir de una lista)
+ * geocodifica y crea/reusa la zona al vuelo — ver `findOrCreateZoneByName`.
+ *
+ * El turno arranca en `PENDING`: la captura de Flex se analiza con IA
+ * (pedido de Fede: "pago x paquete", confirmar que la cantidad declarada
+ * es real) y si coincide con confianza pasa solo a `ACTIVE`. Si la IA no
+ * está configurada, no está segura, o el número no coincide, se queda
+ * `PENDING` para que alguien del depósito lo confirme a mano — ver
+ * `confirmShiftManually`/`rejectShift`.
  */
 
 export type ActiveShiftWithContext = Awaited<ReturnType<typeof getActiveShiftForDriver>>;
@@ -69,10 +78,30 @@ export async function getActiveShiftForDriver(driverId: string, orgId: string) {
   return row ?? null;
 }
 
+/** PENDING o ACTIVE (cualquier turno "vivo", no cerrado) — lo usa la PWA
+ * para saber si mostrar "esperando confirmación" o "turno en curso". */
+export async function getCurrentShiftForDriver(driverId: string, orgId: string) {
+  const [row] = await db
+    .select(shiftCtxSelect)
+    .from(driverShifts)
+    .innerJoin(zones, eq(zones.id, driverShifts.zoneId))
+    .where(
+      and(
+        eq(driverShifts.driverId, driverId),
+        eq(driverShifts.orgId, orgId),
+        ne(driverShifts.status, "ENDED"),
+        isNull(driverShifts.deletedAt),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
 export async function startShift(
   driver: DriverAuthContext,
-  input:
-    { zoneId: string; packageCount: number } | { zoneName: string; packageCount: number },
+  input: (
+    { zoneId: string; packageCount: number } | { zoneName: string; packageCount: number }
+  ) & { flexScreenshotBase64: string; flexScreenshotMimeType: string },
   log = logDomainEvent,
 ) {
   const actor = { actorId: driver.userId, actorRole: "driver" };
@@ -97,10 +126,17 @@ export async function startShift(
         })();
   if (!zone.isActive) throw Errors.validation("la zona no está activa");
 
+  const screenshotPath = await uploadFlexScreenshot(
+    driver.orgId,
+    driver.userId,
+    input.flexScreenshotBase64,
+    input.flexScreenshotMimeType,
+  );
+
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
 
-  const [shift] = await db
+  const [created] = await db
     .insert(driverShifts)
     .values({
       orgId: driver.orgId,
@@ -108,12 +144,55 @@ export async function startShift(
       zoneId: zone.id,
       shiftDate: today,
       packageCount: input.packageCount,
-      status: "ACTIVE",
+      status: "PENDING",
       startedAt: now,
+      flexScreenshotPath: screenshotPath,
     })
     .returning();
+  if (!created) throw Errors.internal("no se pudo crear el turno");
 
-  if (!shift) throw Errors.internal("no se pudo crear el turno");
+  // La verificación corre DESPUÉS del insert (no bloquea la creación del
+  // turno si la IA tarda o falla) pero ANTES de responderle al chofer —
+  // así, si coincide, ya arranca ACTIVE en la primera respuesta en vez de
+  // mostrar "esperando confirmación" un instante para nada.
+  const verification = await verifyPackageScreenshot(
+    input.flexScreenshotBase64,
+    input.flexScreenshotMimeType,
+    input.packageCount,
+  ).catch((): Awaited<ReturnType<typeof verifyPackageScreenshot>> => ({
+    status: "analyzed",
+    matched: false,
+    detectedCount: null,
+    confidence: "low",
+    reasoning: "la IA tiró un error analizando la captura",
+  }));
+
+  const aiAnalysis =
+    verification.status === "analyzed"
+      ? {
+          detectedCount: verification.detectedCount,
+          confidence: verification.confidence,
+          reasoning: verification.reasoning,
+        }
+      : null;
+  const autoConfirm = verification.status === "analyzed" && verification.matched;
+
+  const [shift] = await db
+    .update(driverShifts)
+    .set(
+      autoConfirm
+        ? {
+            status: "ACTIVE",
+            aiConfirmed: true,
+            confirmedAt: now,
+            aiAnalysis,
+            updatedAt: now,
+          }
+        : { aiAnalysis, updatedAt: now },
+    )
+    .where(eq(driverShifts.id, created.id))
+    .returning();
+  if (!shift) throw Errors.internal("no se pudo actualizar el turno");
 
   await db.transaction(async (tx) => {
     await log(
@@ -121,18 +200,145 @@ export async function startShift(
         orgId: driver.orgId,
         entityType: "SHIFT",
         entityId: shift.id,
-        eventType: "SHIFT_STARTED",
+        eventType: autoConfirm ? "SHIFT_STARTED" : "SHIFT_PENDING_CONFIRMATION",
         actorId: driver.userId,
         actorRole: "driver",
-        toStatus: "ACTIVE",
+        toStatus: shift.status,
         occurredAt: now,
-        metadata: { zone: zone.name, packageCount: input.packageCount },
+        metadata: { zone: zone.name, packageCount: input.packageCount, aiAnalysis },
       },
       tx,
     );
   });
 
   return shift;
+}
+
+/** Alguien del depósito confirma un turno PENDING a mano (la IA no
+ * estaba segura, no coincidía, o no está configurada). */
+export async function confirmShiftManually(
+  orgId: string,
+  shiftId: string,
+  actor: { actorId: string; actorRole: string },
+  log = logDomainEvent,
+) {
+  const [pending] = await db
+    .select()
+    .from(driverShifts)
+    .where(
+      and(
+        eq(driverShifts.id, shiftId),
+        eq(driverShifts.orgId, orgId),
+        eq(driverShifts.status, "PENDING"),
+        isNull(driverShifts.deletedAt),
+      ),
+    );
+  if (!pending) throw Errors.notFound("no hay un turno pendiente con ese id");
+
+  const now = new Date();
+  const [shift] = await db
+    .update(driverShifts)
+    .set({
+      status: "ACTIVE",
+      confirmedBy: actor.actorId,
+      confirmedAt: now,
+      updatedAt: now,
+    })
+    .where(eq(driverShifts.id, shiftId))
+    .returning();
+  if (!shift) throw Errors.internal("no se pudo confirmar el turno");
+
+  await db.transaction(async (tx) => {
+    await log(
+      {
+        orgId,
+        entityType: "SHIFT",
+        entityId: shiftId,
+        eventType: "SHIFT_CONFIRMED",
+        actorId: actor.actorId,
+        actorRole: actor.actorRole,
+        fromStatus: "PENDING",
+        toStatus: "ACTIVE",
+        occurredAt: now,
+      },
+      tx,
+    );
+  });
+
+  return shift;
+}
+
+/** Alguien del depósito rechaza un turno PENDING (la cantidad declarada
+ * no coincide con la captura, o la captura no sirve) — el chofer vuelve
+ * a la pantalla de arranque y puede intentar de nuevo. */
+export async function rejectShift(
+  orgId: string,
+  shiftId: string,
+  actor: { actorId: string; actorRole: string },
+  reason: string | undefined,
+  log = logDomainEvent,
+) {
+  const [pending] = await db
+    .select()
+    .from(driverShifts)
+    .where(
+      and(
+        eq(driverShifts.id, shiftId),
+        eq(driverShifts.orgId, orgId),
+        eq(driverShifts.status, "PENDING"),
+        isNull(driverShifts.deletedAt),
+      ),
+    );
+  if (!pending) throw Errors.notFound("no hay un turno pendiente con ese id");
+
+  const now = new Date();
+  await db
+    .update(driverShifts)
+    .set({ deletedAt: now, updatedAt: now })
+    .where(eq(driverShifts.id, shiftId));
+
+  await db.transaction(async (tx) => {
+    await log(
+      {
+        orgId,
+        entityType: "SHIFT",
+        entityId: shiftId,
+        eventType: "SHIFT_REJECTED",
+        actorId: actor.actorId,
+        actorRole: actor.actorRole,
+        fromStatus: "PENDING",
+        occurredAt: now,
+        metadata: { reason: reason ?? null },
+      },
+      tx,
+    );
+  });
+}
+
+/** Turnos esperando confirmación del depósito (con datos del chofer y
+ * la zona para la lista del panel). */
+export async function listPendingShifts(orgId: string) {
+  return db
+    .select({
+      id: driverShifts.id,
+      packageCount: driverShifts.packageCount,
+      startedAt: driverShifts.startedAt,
+      flexScreenshotPath: driverShifts.flexScreenshotPath,
+      aiAnalysis: driverShifts.aiAnalysis,
+      driver: { id: users.id, fullName: users.fullName },
+      zone: { id: zones.id, name: zones.name },
+    })
+    .from(driverShifts)
+    .innerJoin(users, eq(users.id, driverShifts.driverId))
+    .innerJoin(zones, eq(zones.id, driverShifts.zoneId))
+    .where(
+      and(
+        eq(driverShifts.orgId, orgId),
+        eq(driverShifts.status, "PENDING"),
+        isNull(driverShifts.deletedAt),
+      ),
+    )
+    .orderBy(asc(driverShifts.startedAt));
 }
 
 export async function endShift(

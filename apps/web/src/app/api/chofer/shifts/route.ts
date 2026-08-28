@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { jsonError, jsonOk, parseBody, toAppError } from "@/lib/api";
 import { requireDriver } from "@/lib/services/driver-qr";
-import { getActiveShiftForDriver, startShift } from "@/lib/services/shifts";
+import { getCurrentShiftForDriver, startShift } from "@/lib/services/shifts";
 
 /**
  * TURNOS (FYM) — PWA del chofer.
- * GET  /api/chofer/shifts      → turno activo del chofer (si hay).
- * POST /api/chofer/shifts      → arrancar turno { zoneId | zoneName, packageCount }.
+ * GET  /api/chofer/shifts      → turno actual del chofer (PENDING o ACTIVE), si hay.
+ * POST /api/chofer/shifts      → arrancar turno
+ *   { zoneId | zoneName, packageCount, flexScreenshotBase64, flexScreenshotMimeType }.
  */
 
 const startSchema = z
@@ -16,6 +17,12 @@ const startSchema = z
     // Fede) — se geocodifica y se crea/reusa en `startShift`.
     zoneName: z.string().min(2).max(150).optional(),
     packageCount: z.number().int().min(1).max(1_000_000),
+    // Captura de Flex (pedido de Fede: "pago x paquete") — la IA la lee y
+    // confirma sola si coincide con `packageCount`, si no queda PENDING
+    // para que alguien del depósito la revise. Base64 SIN el prefijo
+    // `data:...;base64,` — el cliente ya lo comprime antes de mandarlo.
+    flexScreenshotBase64: z.string().min(100),
+    flexScreenshotMimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
   })
   .refine((v) => v.zoneId ?? v.zoneName, {
     message: "hace falta zoneId o zoneName",
@@ -25,14 +32,16 @@ const startSchema = z
 export async function POST(request: Request): Promise<Response> {
   try {
     const driver = await requireDriver(request);
-    const body = await parseBody(startSchema, request);
+    // Default de parseBody es 1MB — la captura de Flex comprimida en
+    // base64 puede pasarse de eso, así que se sube el límite acá.
+    const body = await parseBody(startSchema, request, { maxBytes: 4_000_000 });
 
-    const shift = await startShift(
-      driver,
-      body.zoneName
-        ? { zoneName: body.zoneName, packageCount: body.packageCount }
-        : { zoneId: body.zoneId!, packageCount: body.packageCount },
-    );
+    const shift = await startShift(driver, {
+      ...(body.zoneName ? { zoneName: body.zoneName } : { zoneId: body.zoneId! }),
+      packageCount: body.packageCount,
+      flexScreenshotBase64: body.flexScreenshotBase64,
+      flexScreenshotMimeType: body.flexScreenshotMimeType,
+    });
     return jsonOk({ shift }, undefined, { status: 201 });
   } catch (err) {
     return jsonError(toAppError(err));
@@ -42,16 +51,16 @@ export async function POST(request: Request): Promise<Response> {
 export async function GET(request: Request): Promise<Response> {
   try {
     const driver = await requireDriver(request);
-    const active = await getActiveShiftForDriver(driver.userId, driver.orgId);
-    if (!active) return jsonOk({ shift: null });
+    const current = await getCurrentShiftForDriver(driver.userId, driver.orgId);
+    if (!current) return jsonOk({ shift: null });
 
     return jsonOk({
       shift: {
-        id: active.shift.id,
-        zoneId: active.shift.zoneId,
-        packageCount: active.shift.packageCount,
-        startedAt: active.shift.startedAt,
-        status: active.shift.status,
+        id: current.shift.id,
+        zoneId: current.shift.zoneId,
+        packageCount: current.shift.packageCount,
+        startedAt: current.shift.startedAt,
+        status: current.shift.status,
       },
     });
   } catch (err) {

@@ -1,4 +1,4 @@
-import { and, asc, count, eq, isNull } from "drizzle-orm";
+import { and, asc, count, eq, isNull, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { driverShifts, shiftReports, users, zoneAlerts, zones } from "@/lib/db/schema";
 
@@ -16,7 +16,9 @@ export interface DailyMetricsRow {
   driver: { id: string; fullName: string };
   shift: {
     id: string;
-    status: "ACTIVE" | "ENDED";
+    // El tipo de columna real incluye PENDING, aunque la query filtra esos
+    // turnos afuera (ver `ne(driverShifts.status, "PENDING")` más abajo).
+    status: "PENDING" | "ACTIVE" | "ENDED";
     startedAt: Date;
     endedAt: Date | null;
     packageCount: number;
@@ -54,6 +56,10 @@ export async function dailyMetrics(
         and(
           eq(driverShifts.orgId, orgId),
           eq(driverShifts.shiftDate, date),
+          // PENDING (todavía sin confirmar la cantidad declarada, pedido
+          // de Fede) no cuenta como actividad real todavía — no debe
+          // aparecer en las métricas hasta que se confirme.
+          ne(driverShifts.status, "PENDING"),
           isNull(driverShifts.deletedAt),
         ),
       )
@@ -96,11 +102,21 @@ export async function dailyMetrics(
       Math.round(((end.getTime() - s.shift.startedAt.getTime()) / 3_600_000) * 10) / 10;
     const alertsEntry = alertCountByShift.get(s.shift.id) ?? { open: 0, total: 0 };
 
+    // Turno cerrado: lo que declaró el chofer AL CERRAR manda — es la
+    // cifra contra la que se paga ("pago x paquete", pedido de Fede), más
+    // confiable que el último aviso de avance (podría haber quedado
+    // desactualizado). Turno todavía activo: el último aviso es lo único
+    // que hay.
+    const delivered =
+      shiftsStatus === "ENDED" && s.shift.undeliveredCount != null
+        ? Math.max(0, s.shift.packageCount - s.shift.undeliveredCount)
+        : (lastDeliveryByShift.get(s.shift.id) ?? 0);
+
     return {
       driver: s.driver,
       shift: { ...s.shift, status: shiftsStatus },
       zoneName: s.zoneName,
-      delivered: lastDeliveryByShift.get(s.shift.id) ?? 0,
+      delivered,
       hoursWorkedHours,
       alertCountOpen: alertsEntry.open,
       alertCountTotal: alertsEntry.total,
