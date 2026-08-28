@@ -15,6 +15,7 @@ import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db } from "../index";
 import {
+  deliveryAlerts,
   devicePushTokens,
   driverShifts,
   organizations,
@@ -70,6 +71,8 @@ describe("RLS FYM (integración contra Supabase real)", () => {
   let zoneBId: string;
   let alertBId: string;
   let reportAId: string;
+  let deliveryAlertAId: string;
+  let deliveryAlertBId: string;
 
   beforeAll(async () => {
     const [org] = await db.insert(organizations).values({ name: orgName }).returning();
@@ -195,6 +198,35 @@ describe("RLS FYM (integración contra Supabase real)", () => {
     if (!reportA) throw new Error("no se pudo crear el avance de test");
     reportAId = reportA.id;
 
+    const [deliveryA] = await db
+      .insert(deliveryAlerts)
+      .values({
+        orgId,
+        shiftId: shiftAId,
+        driverId: driverAId,
+        reason: "NOT_HOME",
+        contactPhone: "+54 11 5555 0101",
+        note: "no atendieron el portero",
+        status: "OPEN",
+      })
+      .returning();
+    const [deliveryB] = await db
+      .insert(deliveryAlerts)
+      .values({
+        orgId,
+        shiftId: shiftBId,
+        driverId: driverBId,
+        reason: "REFUSED",
+        contactPhone: "+54 11 5555 0202",
+        status: "OPEN",
+      })
+      .returning();
+    if (!deliveryA || !deliveryB) {
+      throw new Error("no se pudieron crear las alertas de entrega de test");
+    }
+    deliveryAlertAId = deliveryA.id;
+    deliveryAlertBId = deliveryB.id;
+
     await db.insert(devicePushTokens).values({
       orgId,
       userId: driverAId,
@@ -207,6 +239,7 @@ describe("RLS FYM (integración contra Supabase real)", () => {
     await purgeTestEvents(orgId);
 
     await db.delete(devicePushTokens).where(sql`org_id = ${orgId}`);
+    await db.delete(deliveryAlerts).where(sql`driver_id in (${driverAId}, ${driverBId})`);
     await db.delete(shiftReports).where(sql`shift_id in (${shiftAId}, ${shiftBId})`);
     await db.delete(zoneAlerts).where(sql`driver_id in (${driverAId}, ${driverBId})`);
     await db.delete(driverShifts).where(sql`driver_id in (${driverAId}, ${driverBId})`);
@@ -238,7 +271,7 @@ describe("RLS FYM (integración contra Supabase real)", () => {
     expect(data).toHaveLength(0);
   });
 
-  it("un chofer ve SI propias alertas de geocerca", async () => {
+  it("un chofer ve SUS propias alertas de geocerca", async () => {
     const clientA = await signInAs(driverAEmail);
     const { data, error } = await clientA
       .from("zone_alerts")
@@ -256,6 +289,23 @@ describe("RLS FYM (integración contra Supabase real)", () => {
       .eq("id", alertBId);
     expect(error).toBeNull();
     expect(data).toHaveLength(0);
+  });
+
+  it("un chofer ve SUS alertas de entrega y NO las del otro chofer", async () => {
+    const clientA = await signInAs(driverAEmail);
+    const { data: own, error: errOwn } = await clientA
+      .from("delivery_alerts")
+      .select("id")
+      .eq("id", deliveryAlertAId);
+    expect(errOwn).toBeNull();
+    expect(own).toHaveLength(1);
+
+    const { data: other, error: errOther } = await clientA
+      .from("delivery_alerts")
+      .select("id")
+      .eq("id", deliveryAlertBId);
+    expect(errOther).toBeNull();
+    expect(other).toHaveLength(0);
   });
 
   it("un chofer lee su propio avance y NO el de otro chofer", async () => {

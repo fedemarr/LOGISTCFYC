@@ -17,7 +17,7 @@
     "db:studio": "dotenv -e ../../.env -- drizzle-kit studio",
     "db:verify": "dotenv -e ../../.env -- tsx src/lib/db/verify.ts",
     "test": "dotenv -e ../../.env -- vitest run",
-    "test:unit": "dotenv -e ../../.env -- vitest run src/lib/api/__tests__/errors-response-logger.test.ts"
+    "test:unit": "dotenv -e ../../.env -- vitest run src/lib/api/__tests__/errors-response-logger.test.ts src/lib/services/__tests__/metrics.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.121.0",

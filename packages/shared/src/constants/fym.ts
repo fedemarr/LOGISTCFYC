@@ -27,6 +27,20 @@ export const ZONE_ALERT_STATUSES = ["OPEN", "RESOLVED"] as const;
 export type ZoneAlertStatus = (typeof ZONE_ALERT_STATUSES)[number];
 
 /**
+ * Motivos de una alerta de ENTREGA (FYM) — la reporta el chofer desde la
+ * PWA durante un turno activo cuando no puede entregar un paquete: no
+ * estaba el destinatario (`NOT_HOME`), rechazó el paquete (`REFUSED`) u
+ * otro motivo con nota libre (`OTHER`). El teléfono de contacto es para
+ * que el control llame al destinatario sin interrumpir al chofer.
+ */
+export const DELIVERY_ALERT_REASONS = ["NOT_HOME", "REFUSED", "OTHER"] as const;
+export type DeliveryAlertReason = (typeof DELIVERY_ALERT_REASONS)[number];
+
+/** Estados de una alerta de entrega: abierta → contactado → resuelto. */
+export const DELIVERY_ALERT_STATUSES = ["OPEN", "CONTACTED", "RESOLVED"] as const;
+export type DeliveryAlertStatus = (typeof DELIVERY_ALERT_STATUSES)[number];
+
+/**
  * ⚙️ PARÁMETRO EDITABLE: intervalo entre avisos de avance (horas).
  * El chofer debe reportar el avance cada estas horas (pedido de Fede:
  * "cada 2-3 horas haga un aviso"). Se usa para calcular el próximo

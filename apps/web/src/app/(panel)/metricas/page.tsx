@@ -6,6 +6,7 @@ import { api } from "@/lib/api/client";
 import { PageHeader } from "@/components/page-header";
 import { ErrorState, TableSkeleton } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,9 +19,15 @@ import {
 } from "@/components/ui/table";
 
 /**
- * MÉTRICAS (FYM) — resumen diario por chofer: salió con N paquetes, entregó
- * M (último aviso), dejó X sin repartir, horas trabajadas y alertas de zona.
+ * MÉTRICAS (FYM):
+ *  - Diaria: resumen por chofer del día (salió con N, entregó M, horas…).
+ *  - Rango: global del período — paquetes entregados, horas promedio por
+ *    turno, % de turnos sin incidentes y ranking de performance por chofer
+ *    (pedido de Fede: "una [sección] tipo global de cuánto performance,
+ *    tiempo de entrega, etc, es todo estadística").
  */
+
+type Mode = "daily" | "range";
 
 interface MetricRow {
   driver: { id: string; fullName: string };
@@ -38,6 +45,35 @@ interface MetricRow {
   alertCountTotal: number;
 }
 
+interface RangeDriverRow {
+  driver: { id: string; fullName: string };
+  shiftsCount: number;
+  totalPackages: number;
+  delivered: number;
+  undelivered: number;
+  hoursWorkedHours: number;
+  geoAlertCount: number;
+  deliveryAlertCount: number;
+  deliveredPerHour: number;
+}
+
+interface RangeData {
+  from: string;
+  to: string;
+  summary: {
+    totalShifts: number;
+    endedShifts: number;
+    activeShifts: number;
+    totalPackages: number;
+    totalDelivered: number;
+    totalUndelivered: number;
+    avgHoursPerShift: number;
+    shiftsWithIncidents: number;
+    pctShiftsWithoutIncidents: number;
+  };
+  drivers: RangeDriverRow[];
+}
+
 function fmtHours(h: number) {
   if (h <= 0) return "—";
   const hours = Math.floor(h);
@@ -45,116 +81,309 @@ function fmtHours(h: number) {
   return `${hours}h ${mins.toString().padStart(2, "0")}m`;
 }
 
-export default function MetricasPage() {
-  const [date, setDate] = React.useState(() =>
-    new Date().toLocaleDateString("en-CA", {
-      timeZone: "America/Argentina/Buenos_Aires",
-    }),
+function SummaryCard({ label, value }: { label: string; value: string }) {
+  return (
+    <Card className="p-4">
+      <p className="text-text-muted text-xs">{label}</p>
+      <p className="font-data mt-1 text-xl">{value}</p>
+    </Card>
   );
+}
+
+function todayStr() {
+  return new Date().toLocaleDateString("en-CA", {
+    timeZone: "America/Argentina/Buenos_Aires",
+  });
+}
+
+function firstOfMonthStr() {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+export default function MetricasPage() {
+  const [mode, setMode] = React.useState<Mode>("range");
+
+  // Diaria
+  const [date, setDate] = React.useState(todayStr);
   const [rows, setRows] = React.useState<MetricRow[]>([]);
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState<Error | null>(null);
+  const [loadingDaily, setLoadingDaily] = React.useState(true);
+  const [errorDaily, setErrorDaily] = React.useState<Error | null>(null);
+
+  // Rango
+  const [from, setFrom] = React.useState(firstOfMonthStr);
+  const [to, setTo] = React.useState(todayStr);
+  const [range, setRange] = React.useState<RangeData | null>(null);
+  const [loadingRange, setLoadingRange] = React.useState(true);
+  const [errorRange, setErrorRange] = React.useState<Error | null>(null);
 
   React.useEffect(() => {
+    if (mode !== "daily") return;
     let cancelled = false;
     api
       .get<{ rows: MetricRow[] }>(`/api/metricas?date=${date}`)
       .then((data) => {
-        if (!cancelled) {
-          setError(null);
-          setRows(data.rows);
-          setLoading(false);
-        }
+        if (cancelled) return;
+        setErrorDaily(null);
+        setRows(data.rows);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err : new Error(String(err)));
-        setLoading(false);
+        setErrorDaily(err instanceof Error ? err : new Error(String(err)));
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDaily(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [date]);
+  }, [mode, date]);
+
+  React.useEffect(() => {
+    if (mode !== "range") return;
+    let cancelled = false;
+    api
+      .get<RangeData>(`/api/metricas?from=${from}&to=${to}`)
+      .then((data) => {
+        if (cancelled) return;
+        setErrorRange(null);
+        setRange(data);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setErrorRange(err instanceof Error ? err : new Error(String(err)));
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingRange(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, from, to]);
+
+  const summary = range?.summary;
 
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
-        title="Métricas diarias"
-        description="Cantidad de paquetes con la que salió cada chofer, qué entregó y qué dejó sin repartir."
+        title="Métricas"
+        description={
+          mode === "range"
+            ? "Agregado del período: entregados, horas por turno, incidentes y ranking de choferes."
+            : "Cantidad de paquetes con la que salió cada chofer, qué entregó y qué dejó sin repartir."
+        }
         action={
           <div className="flex items-center gap-2">
-            <CalendarDays className="text-text-muted size-4" />
-            <Input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-44"
-              aria-label="Fecha de las métricas"
-            />
+            <div className="flex w-fit gap-1 rounded-lg border p-1">
+              <Button
+                size="sm"
+                variant={mode === "range" ? "default" : "ghost"}
+                onClick={() => setMode("range")}
+              >
+                Rango
+              </Button>
+              <Button
+                size="sm"
+                variant={mode === "daily" ? "default" : "ghost"}
+                onClick={() => setMode("daily")}
+              >
+                Diaria
+              </Button>
+            </div>
+            {mode === "daily" ? (
+              <div className="flex items-center gap-2">
+                <CalendarDays className="text-text-muted size-4" />
+                <Input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  className="w-44"
+                  aria-label="Fecha de las métricas"
+                />
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Input
+                  type="date"
+                  value={from}
+                  onChange={(e) => setFrom(e.target.value)}
+                  className="w-40"
+                  aria-label="Desde"
+                />
+                <span className="text-text-muted text-sm">→</span>
+                <Input
+                  type="date"
+                  value={to}
+                  onChange={(e) => setTo(e.target.value)}
+                  className="w-40"
+                  aria-label="Hasta"
+                />
+              </div>
+            )}
           </div>
         }
       />
 
-      <Card className="overflow-hidden">
-        {loading && <TableSkeleton columns={7} rows={4} />}
-        {error && (
-          <ErrorState
-            title="No se pudieron cargar las métricas"
-            description={error.message}
-          />
-        )}
-        {!loading && !error && rows.length === 0 && (
-          <p className="text-text-muted p-6 text-sm">No hubo turnos para esta fecha.</p>
-        )}
-        {!loading && rows.length > 0 && (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Chofer</TableHead>
-                <TableHead>Zona</TableHead>
-                <TableHead>Salió con</TableHead>
-                <TableHead>Entregó</TableHead>
-                <TableHead>Sin repartir</TableHead>
-                <TableHead>Horas</TableHead>
-                <TableHead>Alertas</TableHead>
-                <TableHead>Turno</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.shift.startedAt + row.driver.id}>
-                  <TableCell className="font-medium">{row.driver.fullName}</TableCell>
-                  <TableCell className="text-text-muted">{row.zoneName}</TableCell>
-                  <TableCell>{row.shift.packageCount}</TableCell>
-                  <TableCell className="font-medium">{row.delivered}</TableCell>
-                  <TableCell className="text-text-muted">
-                    {row.shift.undeliveredCount ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-text-muted">
-                    {fmtHours(row.hoursWorkedHours)}
-                  </TableCell>
-                  <TableCell>
-                    {row.alertCountTotal > 0 ? (
-                      <Badge variant={row.alertCountOpen > 0 ? "neutral" : "success"}>
-                        {row.alertCountOpen} de {row.alertCountTotal} abiertas
-                      </Badge>
-                    ) : (
-                      <span className="text-text-muted text-sm">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={row.shift.status === "ACTIVE" ? "success" : "neutral"}
-                    >
-                      {row.shift.status === "ACTIVE" ? "en curso" : "cerrado"}
-                    </Badge>
-                  </TableCell>
+      {mode === "range" && (
+        <>
+          {!loadingRange && !errorRange && summary && (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              <SummaryCard
+                label="Entregados"
+                value={summary.totalDelivered.toLocaleString("es-AR")}
+              />
+              <SummaryCard
+                label="Paquetes en turnos"
+                value={summary.totalPackages.toLocaleString("es-AR")}
+              />
+              <SummaryCard
+                label="Turnos"
+                value={summary.totalShifts.toLocaleString("es-AR")}
+              />
+              <SummaryCard
+                label="Horas por turno"
+                value={fmtHours(summary.avgHoursPerShift)}
+              />
+              <SummaryCard
+                label="Turnos sin incidentes"
+                value={`${summary.pctShiftsWithoutIncidents}%`}
+              />
+              <SummaryCard
+                label="Sin repartir (rango)"
+                value={summary.totalUndelivered.toLocaleString("es-AR")}
+              />
+            </div>
+          )}
+
+          <Card className="overflow-hidden">
+            {loadingRange && !range && <TableSkeleton columns={9} rows={4} />}
+            {errorRange && (
+              <ErrorState
+                title="No se pudieron cargar las métricas del rango"
+                description={errorRange.message}
+              />
+            )}
+            {!loadingRange && !errorRange && range && range.drivers.length === 0 && (
+              <p className="text-text-muted p-6 text-sm">
+                No hubo turnos en el período seleccionado.
+              </p>
+            )}
+            {!loadingRange && range && range.drivers.length > 0 && (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Chofer</TableHead>
+                    <TableHead>Turnos</TableHead>
+                    <TableHead>Paquetes</TableHead>
+                    <TableHead>Entregados</TableHead>
+                    <TableHead>Sin repartir</TableHead>
+                    <TableHead>Horas</TableHead>
+                    <TableHead>Entregados/h</TableHead>
+                    <TableHead>Alertas geo</TableHead>
+                    <TableHead>Alertas entrega</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {range.drivers.map((row) => (
+                    <TableRow key={row.driver.id}>
+                      <TableCell className="font-medium">{row.driver.fullName}</TableCell>
+                      <TableCell className="text-text-muted">
+                        {row.shiftsCount.toLocaleString("es-AR")}
+                      </TableCell>
+                      <TableCell>{row.totalPackages.toLocaleString("es-AR")}</TableCell>
+                      <TableCell className="font-medium">
+                        {row.delivered.toLocaleString("es-AR")}
+                      </TableCell>
+                      <TableCell className="text-text-muted">
+                        {row.undelivered.toLocaleString("es-AR")}
+                      </TableCell>
+                      <TableCell className="text-text-muted">
+                        {fmtHours(row.hoursWorkedHours)}
+                      </TableCell>
+                      <TableCell>
+                        {row.deliveredPerHour > 0 ? (
+                          <Badge variant="info">{row.deliveredPerHour} /h</Badge>
+                        ) : (
+                          <span className="text-text-muted text-sm">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-text-muted">
+                        {row.geoAlertCount.toLocaleString("es-AR")}
+                      </TableCell>
+                      <TableCell className="text-text-muted">
+                        {row.deliveryAlertCount.toLocaleString("es-AR")}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </Card>
+        </>
+      )}
+
+      {mode === "daily" && (
+        <Card className="overflow-hidden">
+          {loadingDaily && <TableSkeleton columns={7} rows={4} />}
+          {errorDaily && (
+            <ErrorState
+              title="No se pudieron cargar las métricas"
+              description={errorDaily.message}
+            />
+          )}
+          {!loadingDaily && !errorDaily && rows.length === 0 && (
+            <p className="text-text-muted p-6 text-sm">No hubo turnos para esta fecha.</p>
+          )}
+          {!loadingDaily && rows.length > 0 && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Chofer</TableHead>
+                  <TableHead>Zona</TableHead>
+                  <TableHead>Salió con</TableHead>
+                  <TableHead>Entregó</TableHead>
+                  <TableHead>Sin repartir</TableHead>
+                  <TableHead>Horas</TableHead>
+                  <TableHead>Alertas</TableHead>
+                  <TableHead>Turno</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </Card>
+              </TableHeader>
+              <TableBody>
+                {rows.map((row) => (
+                  <TableRow key={row.shift.startedAt + row.driver.id}>
+                    <TableCell className="font-medium">{row.driver.fullName}</TableCell>
+                    <TableCell className="text-text-muted">{row.zoneName}</TableCell>
+                    <TableCell>{row.shift.packageCount}</TableCell>
+                    <TableCell className="font-medium">{row.delivered}</TableCell>
+                    <TableCell className="text-text-muted">
+                      {row.shift.undeliveredCount ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-text-muted">
+                      {fmtHours(row.hoursWorkedHours)}
+                    </TableCell>
+                    <TableCell>
+                      {row.alertCountTotal > 0 ? (
+                        <Badge variant={row.alertCountOpen > 0 ? "neutral" : "success"}>
+                          {row.alertCountOpen} de {row.alertCountTotal} abiertas
+                        </Badge>
+                      ) : (
+                        <span className="text-text-muted text-sm">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={row.shift.status === "ACTIVE" ? "success" : "neutral"}
+                      >
+                        {row.shift.status === "ACTIVE" ? "en curso" : "cerrado"}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </Card>
+      )}
     </div>
   );
 }

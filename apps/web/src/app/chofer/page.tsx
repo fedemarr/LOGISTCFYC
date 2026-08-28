@@ -2,7 +2,17 @@
 
 import * as React from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Camera, Clock, Flag, Layers, Package, Play, Radio, Send } from "lucide-react";
+import {
+  Camera,
+  Clock,
+  Flag,
+  Layers,
+  Package,
+  Phone,
+  Play,
+  Radio,
+  Send,
+} from "lucide-react";
 import {
   driverApi,
   getStoredToken,
@@ -14,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 
 /**
@@ -136,6 +147,15 @@ function ChoferAppInner() {
   // paquete") y se deriva cuántos faltaron, no al revés.
   const [closing, setClosing] = React.useState(false);
   const [delivered, setDelivered] = React.useState("");
+
+  // Problema de entrega (pedido de Fede) — fire-and-forget: el chofer
+  // reporta y sigue manejando, control llama al teléfono del destinatario.
+  const [deliveryReason, setDeliveryReason] = React.useState<
+    "" | "NOT_HOME" | "REFUSED" | "OTHER"
+  >("");
+  const [deliveryPhone, setDeliveryPhone] = React.useState("");
+  const [deliveryNote, setDeliveryNote] = React.useState("");
+  const [reportingDelivery, setReportingDelivery] = React.useState(false);
 
   // GPS
   const [gpsStatus, setGpsStatus] = React.useState<"off" | "on" | "error">("off");
@@ -437,6 +457,32 @@ function ChoferAppInner() {
     }
   }
 
+  async function handleReportDelivery() {
+    if (!shift || !deliveryReason) return;
+    setReportingDelivery(true);
+    try {
+      await driverApi("/api/chofer/delivery-alerts", {
+        method: "POST",
+        body: JSON.stringify({
+          reason: deliveryReason,
+          contactPhone: deliveryPhone.trim() || undefined,
+          note: deliveryNote.trim() || undefined,
+        }),
+      });
+      setDeliveryReason("");
+      setDeliveryPhone("");
+      setDeliveryNote("");
+      toast({
+        title: "Problema reportado — control llama al número cargado.",
+        variant: "success",
+      });
+    } catch (err) {
+      toast({ title: errMessage(err), variant: "error" });
+    } finally {
+      setReportingDelivery(false);
+    }
+  }
+
   async function handleEnd() {
     if (!shift) return;
     const deliveredCount = Number(delivered);
@@ -698,6 +744,63 @@ function ChoferAppInner() {
                 onClick={() => void handleReport()}
               >
                 <Send /> {reporting ? "Enviando…" : "Enviar aviso"}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Phone className="text-primary size-4" /> Reportar problema de entrega
+              </CardTitle>
+              <p className="text-text-muted text-sm">
+                No estaba el destinatario o rechazó el paquete — cargá el teléfono que
+                figura en el envío (si lo tenés) y control lo llama directo. Seguís
+                manejando, no tenés que frenar.
+              </p>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="d-reason">¿Qué pasó?</Label>
+                <Select
+                  id="d-reason"
+                  value={deliveryReason}
+                  onChange={(e) =>
+                    setDeliveryReason(e.target.value as typeof deliveryReason)
+                  }
+                >
+                  <option value="">Elegí el motivo…</option>
+                  <option value="NOT_HOME">No está el destinatario</option>
+                  <option value="REFUSED">Rechazó el paquete</option>
+                  <option value="OTHER">Otro</option>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="d-phone">Teléfono de contacto (opcional)</Label>
+                <Input
+                  id="d-phone"
+                  type="tel"
+                  inputMode="tel"
+                  value={deliveryPhone}
+                  onChange={(e) => setDeliveryPhone(e.target.value)}
+                  placeholder="El que está en el envío, para que control llame"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="d-note">Nota (opcional)</Label>
+                <Input
+                  id="d-note"
+                  value={deliveryNote}
+                  onChange={(e) => setDeliveryNote(e.target.value)}
+                  placeholder="ej. no atiende el portero, dejó dicho otra cosa…"
+                />
+              </div>
+              <Button
+                variant="outline"
+                disabled={reportingDelivery || !deliveryReason}
+                onClick={() => void handleReportDelivery()}
+              >
+                <Send /> {reportingDelivery ? "Enviando…" : "Reportar problema"}
               </Button>
             </CardContent>
           </Card>
