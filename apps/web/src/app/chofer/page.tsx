@@ -14,7 +14,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 
 /**
@@ -72,8 +71,11 @@ function ChoferAppInner() {
   const [shift, setShift] = React.useState<ShiftState | null>(null);
   const [loadingSession, setLoadingSession] = React.useState(() => token !== null);
 
-  // Turno nuevo
-  const [zoneId, setZoneId] = React.useState("");
+  // Turno nuevo — la zona se ESCRIBE (pedido de Fede), no se elige de una
+  // lista fija: se geocodifica en el backend al arrancar el turno. Las
+  // zonas ya existentes de la org se ofrecen como sugerencias (datalist)
+  // pero no limitan lo que se puede tipear.
+  const [zoneName, setZoneName] = React.useState("");
   const [packageCount, setPackageCount] = React.useState("");
   const [starting, setStarting] = React.useState(false);
 
@@ -277,12 +279,15 @@ function ChoferAppInner() {
   }, []);
 
   async function handleStart() {
-    if (!zoneId || !packageCount) return;
+    if (!zoneName.trim() || !packageCount) return;
     setStarting(true);
     try {
       const data = await driverApi<{ shift: ShiftState }>("/api/chofer/shifts", {
         method: "POST",
-        body: JSON.stringify({ zoneId, packageCount: Number(packageCount) }),
+        body: JSON.stringify({
+          zoneName: zoneName.trim(),
+          packageCount: Number(packageCount),
+        }),
       });
       setShift(data.shift);
       shiftRef.current = { zoneId: data.shift.zoneId, active: true };
@@ -401,20 +406,18 @@ function ChoferAppInner() {
             <CardContent className="flex flex-col gap-3">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="zone">Zona de reparto</Label>
-                <Select
+                <Input
                   id="zone"
-                  value={zoneId}
-                  onChange={(e) => setZoneId(e.target.value)}
-                >
-                  <option value="" disabled>
-                    Elegí la zona
-                  </option>
+                  list="zone-suggestions"
+                  value={zoneName}
+                  onChange={(e) => setZoneName(e.target.value)}
+                  placeholder="Escribí dónde repartís, ej. Moreno, Buenos Aires"
+                />
+                <datalist id="zone-suggestions">
                   {zones.map((z) => (
-                    <option key={z.id} value={z.id}>
-                      {z.name}
-                    </option>
+                    <option key={z.id} value={z.name} />
                   ))}
-                </Select>
+                </datalist>
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="count">Paquetes del depósito</Label>
@@ -428,10 +431,10 @@ function ChoferAppInner() {
                 />
               </div>
               <Button
-                disabled={starting || !zoneId || !packageCount}
+                disabled={starting || !zoneName.trim() || !packageCount}
                 onClick={() => void handleStart()}
               >
-                <Play /> {starting ? "Arrancando…" : "Arrancar turno"}
+                <Play /> {starting ? "Ubicando zona…" : "Arrancar turno"}
               </Button>
             </CardContent>
           </Card>

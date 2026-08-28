@@ -10,6 +10,7 @@ import {
   users,
 } from "@/lib/db/schema";
 import { logDomainEvent } from "@/lib/services/events";
+import { findOrCreateZoneByName } from "@/lib/services/zones";
 import { REPORT_INTERVAL_HOURS, REPORT_LATE_MINUTES } from "@fym/shared";
 import { haversineDistanceMeters } from "@fym/geo";
 import type { DriverAuthContext } from "@/lib/services/driver-qr";
@@ -18,9 +19,11 @@ import type { DriverAuthContext } from "@/lib/services/driver-qr";
  * TURNOS DEL CHOFER (FYM)
  *
  * Un turno = jornada de un chofer en un día asignada a una zona. El chofer
- * lo arranca con `{ zoneId, packageCount }` (sale del depósito con ese
- * número de paquetes), hace reportes de avance cada 2-3 h y lo cierra con
- * los que quedaron sin repartir.
+ * lo arranca con `{ zoneId | zoneName, packageCount }` (sale del depósito
+ * con ese número de paquetes), hace reportes de avance cada 2-3 h y lo
+ * cierra con los que quedaron sin repartir. `zoneName` (pedido de Fede: el
+ * chofer ESCRIBE la zona en vez de elegir de una lista) geocodifica y
+ * crea/reusa la zona al vuelo — ver `findOrCreateZoneByName`.
  */
 
 export type ActiveShiftWithContext = Awaited<ReturnType<typeof getActiveShiftForDriver>>;
@@ -68,21 +71,30 @@ export async function getActiveShiftForDriver(driverId: string, orgId: string) {
 
 export async function startShift(
   driver: DriverAuthContext,
-  input: { zoneId: string; packageCount: number },
+  input:
+    { zoneId: string; packageCount: number } | { zoneName: string; packageCount: number },
   log = logDomainEvent,
 ) {
-  const [zone] = await db
-    .select({ id: zones.id, name: zones.name, isActive: zones.isActive })
-    .from(zones)
-    .where(
-      and(
-        eq(zones.id, input.zoneId),
-        eq(zones.orgId, driver.orgId),
-        isNull(zones.deletedAt),
-      ),
-    )
-    .limit(1);
-  if (!zone) throw Errors.notFound("zona no encontrada");
+  const actor = { actorId: driver.userId, actorRole: "driver" };
+
+  const zone =
+    "zoneName" in input
+      ? await findOrCreateZoneByName(driver.orgId, actor, input.zoneName, log)
+      : await (async () => {
+          const [z] = await db
+            .select()
+            .from(zones)
+            .where(
+              and(
+                eq(zones.id, input.zoneId),
+                eq(zones.orgId, driver.orgId),
+                isNull(zones.deletedAt),
+              ),
+            )
+            .limit(1);
+          if (!z) throw Errors.notFound("zona no encontrada");
+          return z;
+        })();
   if (!zone.isActive) throw Errors.validation("la zona no está activa");
 
   const now = new Date();
@@ -93,7 +105,7 @@ export async function startShift(
     .values({
       orgId: driver.orgId,
       driverId: driver.userId,
-      zoneId: input.zoneId,
+      zoneId: zone.id,
       shiftDate: today,
       packageCount: input.packageCount,
       status: "ACTIVE",

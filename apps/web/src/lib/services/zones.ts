@@ -1,8 +1,15 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { Errors } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { zones } from "@/lib/db/schema";
+import { geocodeText } from "@/lib/services/geocoding";
 import { logDomainEvent } from "@/lib/services/events";
+
+/** Radio por default de una zona creada al vuelo por texto libre del
+ * chofer (pedido de Fede) — no hay UI para elegirlo, así que va generoso
+ * (una localidad entera, no una geocerca de admin ajustada a mano). El
+ * admin la puede editar después desde `/zonas` como cualquier otra. */
+const FREE_TEXT_ZONE_RADIUS_M = 6_000;
 
 export interface ActorContext {
   actorId: string;
@@ -71,6 +78,51 @@ export async function createZone(
   });
 
   return zone;
+}
+
+/**
+ * Resuelve la zona a partir de texto libre escrito por el chofer al
+ * arrancar el turno (pedido de Fede: "que deje escribirla" en vez de
+ * elegir de una lista fija) — reusa una zona existente de la org si el
+ * nombre ya coincide (sin re-geocodificar ni duplicar), o geocodifica y
+ * crea una nueva. Esa zona queda como cualquier otra: visible/editable
+ * en `/zonas`, y el turno aparece en el mapa de `/monitoreo` centrado ahí.
+ */
+export async function findOrCreateZoneByName(
+  orgId: string,
+  actor: ActorContext,
+  rawName: string,
+  log = logDomainEvent,
+): Promise<typeof zones.$inferSelect> {
+  const name = rawName.trim();
+  if (!name) throw Errors.validation("falta el nombre de la zona");
+
+  const [existing] = await db
+    .select()
+    .from(zones)
+    .where(
+      and(
+        eq(zones.orgId, orgId),
+        isNull(zones.deletedAt),
+        sql`lower(${zones.name}) = lower(${name})`,
+      ),
+    )
+    .limit(1);
+  if (existing) return existing;
+
+  const geocoded = await geocodeText(name);
+
+  return createZone(
+    orgId,
+    actor,
+    {
+      name,
+      centerLat: geocoded.lat,
+      centerLng: geocoded.lng,
+      radiusM: FREE_TEXT_ZONE_RADIUS_M,
+    },
+    log,
+  );
 }
 
 export async function updateZone(
