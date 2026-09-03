@@ -1,7 +1,9 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
+import { haversineDistanceMeters } from "@fym/geo";
 import { Errors } from "@/lib/api/errors";
 import { db } from "@/lib/db";
-import { driverShifts, storeOrders, storeOrdersToSelect } from "@/lib/db/schema";
+import { driverShifts, storeOrders, storeOrdersToSelect, zones } from "@/lib/db/schema";
+import { geocodeText } from "@/lib/services/geocoding";
 import { logDomainEvent } from "@/lib/services/events";
 import {
   TiendanubeApiError,
@@ -17,9 +19,11 @@ import type { StoreOrderStatus } from "@fym/shared";
 /**
  * PEDIDOS DE TIENDA NUBE (FYM) — pedido de un cliente por WhatsApp
  * (03/09/2026). `syncOrders` trae pedidos nuevos/actualizados y los
- * upsertea en `store_orders`; `markOrderDelivered` es la mitad que va
- * para el OTRO lado: marca acá Y empuja el estado a Tienda Nube (la
- * parte de "crear el envío por fuera" del pedido original).
+ * upsertea en `store_orders`, geocodificando los NUEVOS y sugiriendo la
+ * zona más cercana (pedido de Fede: "agrupar por zona/cercanía y asignar
+ * en bloque" en vez de pedido por pedido); `markOrderDelivered` es la
+ * mitad que va para el OTRO lado: marca acá Y empuja el estado a Tienda
+ * Nube (la parte de "crear el envío por fuera" del pedido original).
  */
 
 /** Mapeo puro Tienda Nube → nuestros campos — separado de la DB para
@@ -41,8 +45,77 @@ export function mapTiendanubeOrder(order: TiendanubeOrder) {
   };
 }
 
-/** Trae pedidos de Tienda Nube y los upsertea. Sync incremental: si ya
- * hubo una sincronización, solo trae lo actualizado desde entonces. */
+/** Arma el texto a geocodificar a partir de las partes de la dirección —
+ * lo más específico que haya, con Argentina al final para sesgar el
+ * resultado (mismo criterio que `findOrCreateZoneByName`). */
+function addressToGeocode(mapped: ReturnType<typeof mapTiendanubeOrder>): string | null {
+  const parts = [
+    mapped.shippingAddress,
+    mapped.shippingCity,
+    mapped.shippingProvince,
+  ].filter(Boolean);
+  if (parts.length === 0) return null;
+  return `${parts.join(", ")}, Argentina`;
+}
+
+/** Zona activa más cercana CUYO RADIO contiene el punto — null si no cae
+ * dentro de ninguna geocerca existente (el dispatcher la asigna a mano). */
+async function findContainingZone(
+  orgId: string,
+  lat: number,
+  lng: number,
+): Promise<string | null> {
+  const activeZones = await db
+    .select({
+      id: zones.id,
+      centerLat: zones.centerLat,
+      centerLng: zones.centerLng,
+      radiusM: zones.radiusM,
+    })
+    .from(zones)
+    .where(
+      and(eq(zones.orgId, orgId), eq(zones.isActive, true), isNull(zones.deletedAt)),
+    );
+
+  let best: { id: string; distanceM: number } | null = null;
+  for (const zone of activeZones) {
+    const distanceM = haversineDistanceMeters(
+      { lat, lng },
+      { lat: zone.centerLat, lng: zone.centerLng },
+    );
+    if (distanceM > zone.radiusM) continue;
+    if (!best || distanceM < best.distanceM) best = { id: zone.id, distanceM };
+  }
+  return best?.id ?? null;
+}
+
+/** Geocodifica un pedido nuevo y sugiere zona — nunca tira: si la
+ * dirección no se puede ubicar, el pedido queda sin lat/lng/zona
+ * sugerida y se asigna a mano, no bloquea el sync de los demás. */
+async function geocodeAndSuggestZone(
+  orgId: string,
+  mapped: ReturnType<typeof mapTiendanubeOrder>,
+): Promise<{ lat: number | null; lng: number | null; suggestedZoneId: string | null }> {
+  const query = addressToGeocode(mapped);
+  if (!query) return { lat: null, lng: null, suggestedZoneId: null };
+
+  try {
+    const geocoded = await geocodeText(query);
+    const suggestedZoneId = await findContainingZone(orgId, geocoded.lat, geocoded.lng);
+    return { lat: geocoded.lat, lng: geocoded.lng, suggestedZoneId };
+  } catch {
+    return { lat: null, lng: null, suggestedZoneId: null };
+  }
+}
+
+/**
+ * Trae pedidos de Tienda Nube y los upsertea. Sync incremental: si ya
+ * hubo una sincronización, solo trae lo actualizado desde entonces. Los
+ * pedidos NUEVOS se geocodifican (una llamada a la API de Google por
+ * pedido, secuencial a propósito para no pasarse de las cuotas) — los ya
+ * existentes NO se vuelven a geocodificar salvo que no tuvieran
+ * coordenadas todavía.
+ */
 export async function syncOrders(
   orgId: string,
 ): Promise<{ synced: number; total: number }> {
@@ -72,21 +145,24 @@ export async function syncOrders(
   for (const order of orders) {
     const mapped = mapTiendanubeOrder(order);
     const [existing] = await db
-      .select({ id: storeOrders.id })
+      .select({ id: storeOrders.id, lat: storeOrders.lat })
       .from(storeOrders)
       .where(
         and(eq(storeOrders.orgId, orgId), eq(storeOrders.externalId, mapped.externalId)),
       );
 
     if (existing) {
+      const geo = existing.lat == null ? await geocodeAndSuggestZone(orgId, mapped) : {};
       await db
         .update(storeOrders)
-        .set({ ...mapped, syncedAt: now, updatedAt: now })
+        .set({ ...mapped, ...geo, syncedAt: now, updatedAt: now })
         .where(eq(storeOrders.id, existing.id));
     } else {
+      const geo = await geocodeAndSuggestZone(orgId, mapped);
       await db.insert(storeOrders).values({
         orgId,
         ...mapped,
+        ...geo,
         status: "PENDING",
         syncedAt: now,
       });
@@ -98,8 +174,9 @@ export async function syncOrders(
 
 export async function listOrders(orgId: string, status?: StoreOrderStatus) {
   return db
-    .select(storeOrdersToSelect)
+    .select({ ...storeOrdersToSelect, suggestedZoneName: zones.name })
     .from(storeOrders)
+    .leftJoin(zones, eq(zones.id, storeOrders.suggestedZoneId))
     .where(
       and(
         eq(storeOrders.orgId, orgId),
@@ -168,6 +245,70 @@ export async function assignOrderToShift(
   });
 
   return updated;
+}
+
+/**
+ * Asigna en bloque TODOS los pedidos PENDING sugeridos para una zona a un
+ * turno de chofer — la parte de "agrupar y asignar en bloque" del pedido
+ * de Fede, en vez de ir pedido por pedido con `assignOrderToShift`.
+ */
+export async function bulkAssignZoneToShift(
+  orgId: string,
+  zoneId: string,
+  shiftId: string,
+  actor: ActorContext,
+  log = logDomainEvent,
+): Promise<{ assigned: number }> {
+  const [shift] = await db
+    .select({ id: driverShifts.id })
+    .from(driverShifts)
+    .where(and(eq(driverShifts.id, shiftId), eq(driverShifts.orgId, orgId)));
+  if (!shift) throw Errors.notFound("turno no encontrado");
+
+  const pending = await db
+    .select({ id: storeOrders.id })
+    .from(storeOrders)
+    .where(
+      and(
+        eq(storeOrders.orgId, orgId),
+        eq(storeOrders.suggestedZoneId, zoneId),
+        eq(storeOrders.status, "PENDING"),
+        isNull(storeOrders.deletedAt),
+      ),
+    );
+  if (pending.length === 0) return { assigned: 0 };
+
+  const now = new Date();
+  await db
+    .update(storeOrders)
+    .set({ shiftId, status: "ASSIGNED", updatedAt: now })
+    .where(
+      and(
+        eq(storeOrders.orgId, orgId),
+        eq(storeOrders.suggestedZoneId, zoneId),
+        eq(storeOrders.status, "PENDING"),
+        isNull(storeOrders.deletedAt),
+      ),
+    );
+
+  await db.transaction(async (tx) => {
+    await log(
+      {
+        orgId,
+        entityType: "ORDER",
+        entityId: shiftId,
+        eventType: "ORDERS_BULK_ASSIGNED",
+        actorId: actor.actorId,
+        actorRole: actor.actorRole,
+        toStatus: "ASSIGNED",
+        occurredAt: now,
+        metadata: { zoneId, shiftId, count: pending.length },
+      },
+      tx,
+    );
+  });
+
+  return { assigned: pending.length };
 }
 
 /**

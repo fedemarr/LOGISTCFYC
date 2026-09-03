@@ -46,6 +46,8 @@ interface OrderItem {
   shippingCity: string | null;
   status: OrderStatus;
   shiftId: string | null;
+  suggestedZoneId: string | null;
+  suggestedZoneName: string | null;
   syncedAt: string;
 }
 
@@ -87,6 +89,8 @@ export default function PedidosPage() {
   const [statusFilter, setStatusFilter] = React.useState<OrderStatus | "">("");
   const [syncing, setSyncing] = React.useState(false);
   const [busyOrderId, setBusyOrderId] = React.useState<string | null>(null);
+  const [zonePicks, setZonePicks] = React.useState<Record<string, string>>({});
+  const [busyZoneKey, setBusyZoneKey] = React.useState<string | null>(null);
 
   async function loadConnection() {
     try {
@@ -184,6 +188,43 @@ export default function PedidosPage() {
       });
     } finally {
       setSyncing(false);
+    }
+  }
+
+  const pendingByZone = React.useMemo(() => {
+    const groups = new Map<string, { name: string; count: number }>();
+    for (const order of orders) {
+      if (order.status !== "PENDING") continue;
+      const key = order.suggestedZoneId ?? "__none__";
+      const name = order.suggestedZoneName ?? "Sin zona sugerida";
+      const entry = groups.get(key) ?? { name, count: 0 };
+      entry.count += 1;
+      groups.set(key, entry);
+    }
+    return [...groups.entries()]
+      .filter(([key]) => key !== "__none__")
+      .map(([zoneId, v]) => ({ zoneId, ...v }))
+      .sort((a, b) => b.count - a.count);
+  }, [orders]);
+
+  async function handleBulkAssign(zoneId: string) {
+    const shiftId = zonePicks[zoneId];
+    if (!shiftId) return;
+    setBusyZoneKey(zoneId);
+    try {
+      const data = await api.post<{ assigned: number }>("/api/orders/assign-zone", {
+        zoneId,
+        shiftId,
+      });
+      toast({ title: `${data.assigned} pedidos asignados`, variant: "success" });
+      await loadOrders();
+    } catch (err) {
+      toast({
+        title: err instanceof Error ? err.message : "No se pudo asignar en bloque",
+        variant: "error",
+      });
+    } finally {
+      setBusyZoneKey(null);
     }
   }
 
@@ -331,6 +372,65 @@ export default function PedidosPage() {
         </CardContent>
       </Card>
 
+      {connection && pendingByZone.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Asignar por zona</CardTitle>
+            <p className="text-text-muted text-sm">
+              Pedidos sin asignar, agrupados por la zona más cercana — asignalos todos
+              juntos al chofer que corresponda en vez de uno por uno.
+            </p>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {pendingByZone.map((group) => {
+              const matchingShifts = shifts.filter((s) => s.zone.id === group.zoneId);
+              return (
+                <div
+                  key={group.zoneId}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"
+                >
+                  <div>
+                    <p className="text-sm font-medium">{group.name}</p>
+                    <p className="text-text-muted text-xs">
+                      {group.count} {group.count === 1 ? "pedido" : "pedidos"} sin asignar
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Select
+                      aria-label={`Asignar pedidos de ${group.name} a`}
+                      className="w-44"
+                      value={zonePicks[group.zoneId] ?? ""}
+                      onChange={(e) =>
+                        setZonePicks((prev) => ({
+                          ...prev,
+                          [group.zoneId]: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="" disabled>
+                        Elegí un chofer…
+                      </option>
+                      {(matchingShifts.length > 0 ? matchingShifts : shifts).map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.driver.fullName} · {s.zone.name}
+                        </option>
+                      ))}
+                    </Select>
+                    <Button
+                      size="sm"
+                      disabled={!zonePicks[group.zoneId] || busyZoneKey === group.zoneId}
+                      onClick={() => void handleBulkAssign(group.zoneId)}
+                    >
+                      Asignar todos
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
       {connection && (
         <Card className="overflow-hidden">
           <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
@@ -387,6 +487,11 @@ export default function PedidosPage() {
                       {[order.shippingAddress, order.shippingCity]
                         .filter(Boolean)
                         .join(", ") || "—"}
+                      {order.suggestedZoneName && (
+                        <p className="text-text-muted-2 text-xs">
+                          Zona sugerida: {order.suggestedZoneName}
+                        </p>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge variant={STATUS_VARIANT[order.status]}>

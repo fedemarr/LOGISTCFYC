@@ -1,7 +1,15 @@
-import { jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  doublePrecision,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { storeOrderStatusEnum } from "./enums";
 import { organizations } from "./organizations";
 import { driverShifts } from "./driver-shifts";
+import { zones } from "./zones";
 
 /**
  * Pedido sincronizado desde Tienda Nube (`services/orders.ts`). Excepción
@@ -22,6 +30,14 @@ export const storeOrders = pgTable("store_orders", {
   shippingAddress: text("shipping_address"),
   shippingCity: text("shipping_city"),
   shippingProvince: text("shipping_province"),
+  /** Geocodificado al sincronizar (nuevo pedido, `services/geocoding.ts`) —
+   * null si todavía no se pudo ubicar la dirección. */
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
+  /** Zona (geocerca) más cercana al punto geocodificado — SUGERENCIA para
+   * agrupar y asignar en bloque, no obliga nada (pedido de Fede:
+   * "agrupar por zona/cercanía y asignar en bloque"). */
+  suggestedZoneId: uuid("suggested_zone_id").references(() => zones.id),
   status: storeOrderStatusEnum("status").notNull().default("PENDING"),
   /** `shipping_status` crudo de Tienda Nube — referencia, no maneja
    * nuestra lógica. */
@@ -47,6 +63,9 @@ export const storeOrdersToSelect = {
   shippingAddress: storeOrders.shippingAddress,
   shippingCity: storeOrders.shippingCity,
   shippingProvince: storeOrders.shippingProvince,
+  lat: storeOrders.lat,
+  lng: storeOrders.lng,
+  suggestedZoneId: storeOrders.suggestedZoneId,
   status: storeOrders.status,
   externalStatus: storeOrders.externalStatus,
   shiftId: storeOrders.shiftId,
