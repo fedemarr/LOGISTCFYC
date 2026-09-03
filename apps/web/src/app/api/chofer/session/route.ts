@@ -64,6 +64,7 @@ export async function POST(request: Request): Promise<Response> {
             id: currentShift.shift.id,
             startedAt: currentShift.shift.startedAt,
             status: currentShift.shift.status,
+            assignedByAdmin: currentShift.shift.assignedByAdmin,
           }
         : null,
       now: new Date().toISOString(),

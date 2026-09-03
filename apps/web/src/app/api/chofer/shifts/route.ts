@@ -61,6 +61,7 @@ export async function GET(request: Request): Promise<Response> {
         packageCount: current.shift.packageCount,
         startedAt: current.shift.startedAt,
         status: current.shift.status,
+        assignedByAdmin: current.shift.assignedByAdmin,
       },
     });
   } catch (err) {

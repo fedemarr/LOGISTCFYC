@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, Link2, RefreshCw, ShoppingBag, Unlink, X } from "lucide-react";
+import { Check, Link2, Plus, RefreshCw, ShoppingBag, Unlink, X } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { PageHeader } from "@/components/page-header";
 import { ErrorState, TableSkeleton } from "@/components/states";
@@ -45,6 +45,7 @@ interface OrderItem {
   shippingAddress: string | null;
   shippingCity: string | null;
   status: OrderStatus;
+  source: "tiendanube" | "manual";
   shiftId: string | null;
   suggestedZoneId: string | null;
   suggestedZoneName: string | null;
@@ -81,6 +82,20 @@ export default function PedidosPage() {
   const [connecting, setConnecting] = React.useState(false);
   const [storeId, setStoreId] = React.useState("");
   const [accessToken, setAccessToken] = React.useState("");
+
+  // Pedido manual (pedido de Fede: cargar pedidos a mano para probar,
+  // sin depender de tener Tienda Nube conectada) — mismo listado y
+  // flujos de acá en más que uno sincronizado.
+  const [manualOpen, setManualOpen] = React.useState(false);
+  const [manualCreating, setManualCreating] = React.useState(false);
+  const [manualForm, setManualForm] = React.useState({
+    orderNumber: "",
+    customerName: "",
+    customerPhone: "",
+    shippingAddress: "",
+    shippingCity: "",
+    shippingProvince: "",
+  });
 
   const [orders, setOrders] = React.useState<OrderItem[]>([]);
   const [shifts, setShifts] = React.useState<AssignableShift[]>([]);
@@ -172,6 +187,38 @@ export default function PedidosPage() {
       });
     } finally {
       setConnecting(false);
+    }
+  }
+
+  async function handleCreateManual() {
+    setManualCreating(true);
+    try {
+      await api.post("/api/orders/manual", {
+        orderNumber: manualForm.orderNumber.trim() || undefined,
+        customerName: manualForm.customerName.trim() || undefined,
+        customerPhone: manualForm.customerPhone.trim() || undefined,
+        shippingAddress: manualForm.shippingAddress.trim() || undefined,
+        shippingCity: manualForm.shippingCity.trim() || undefined,
+        shippingProvince: manualForm.shippingProvince.trim() || undefined,
+      });
+      toast({ title: "Pedido manual cargado", variant: "success" });
+      setManualForm({
+        orderNumber: "",
+        customerName: "",
+        customerPhone: "",
+        shippingAddress: "",
+        shippingCity: "",
+        shippingProvince: "",
+      });
+      setManualOpen(false);
+      await loadOrders();
+    } catch (err) {
+      toast({
+        title: err instanceof Error ? err.message : "No se pudo cargar el pedido",
+        variant: "error",
+      });
+    } finally {
+      setManualCreating(false);
     }
   }
 
@@ -372,7 +419,105 @@ export default function PedidosPage() {
         </CardContent>
       </Card>
 
-      {connection && pendingByZone.length > 0 && (
+      <Card>
+        <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Plus className="text-primary size-4" /> Pedido manual
+          </CardTitle>
+          {!manualOpen && (
+            <Button size="sm" variant="outline" onClick={() => setManualOpen(true)}>
+              <Plus className="size-4" /> Cargar pedido
+            </Button>
+          )}
+        </CardHeader>
+        {manualOpen && (
+          <CardContent className="flex flex-col gap-3">
+            <p className="text-text-muted text-sm">
+              Para probar sin depender de Tienda Nube — entra al mismo flujo de acá en más
+              (asignar, mapa, marcar entregado).
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="m-number">Número de pedido (opcional)</Label>
+                <Input
+                  id="m-number"
+                  value={manualForm.orderNumber}
+                  onChange={(e) =>
+                    setManualForm((f) => ({ ...f, orderNumber: e.target.value }))
+                  }
+                  placeholder="se genera uno si lo dejás vacío"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="m-name">Nombre del cliente</Label>
+                <Input
+                  id="m-name"
+                  value={manualForm.customerName}
+                  onChange={(e) =>
+                    setManualForm((f) => ({ ...f, customerName: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="m-phone">Teléfono</Label>
+                <Input
+                  id="m-phone"
+                  type="tel"
+                  value={manualForm.customerPhone}
+                  onChange={(e) =>
+                    setManualForm((f) => ({ ...f, customerPhone: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="m-address">Dirección</Label>
+                <Input
+                  id="m-address"
+                  value={manualForm.shippingAddress}
+                  onChange={(e) =>
+                    setManualForm((f) => ({ ...f, shippingAddress: e.target.value }))
+                  }
+                  placeholder="calle y número — se geocodifica para sugerir zona"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="m-city">Ciudad</Label>
+                <Input
+                  id="m-city"
+                  value={manualForm.shippingCity}
+                  onChange={(e) =>
+                    setManualForm((f) => ({ ...f, shippingCity: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="m-province">Provincia</Label>
+                <Input
+                  id="m-province"
+                  value={manualForm.shippingProvince}
+                  onChange={(e) =>
+                    setManualForm((f) => ({ ...f, shippingProvince: e.target.value }))
+                  }
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button disabled={manualCreating} onClick={() => void handleCreateManual()}>
+                {manualCreating ? "Cargando…" : "Cargar pedido"}
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={manualCreating}
+                onClick={() => setManualOpen(false)}
+              >
+                Cancelar
+              </Button>
+            </div>
+          </CardContent>
+        )}
+      </Card>
+
+      {pendingByZone.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Asignar por zona</CardTitle>
@@ -431,126 +576,131 @@ export default function PedidosPage() {
         </Card>
       )}
 
-      {connection && (
-        <Card className="overflow-hidden">
-          <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
-            <CardTitle className="text-base">Pedidos</CardTitle>
-            <Select
-              aria-label="Filtrar por estado"
-              className="w-44"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as OrderStatus | "")}
-            >
-              <option value="">Todos</option>
-              {(Object.keys(STATUS_LABEL) as OrderStatus[]).map((s) => (
-                <option key={s} value={s}>
-                  {STATUS_LABEL[s]}
-                </option>
-              ))}
-            </Select>
-          </CardHeader>
-          {loading && !orders.length && <TableSkeleton columns={5} rows={5} />}
-          {error && (
-            <ErrorState
-              title="No se pudieron cargar los pedidos"
-              description={error.message}
-              onRetry={() => void loadOrders()}
-            />
-          )}
-          {!loading && !error && orders.length === 0 && (
-            <p className="text-text-muted p-6 text-sm">
-              No hay pedidos todavía — probá &quot;Sincronizar ahora&quot;.
-            </p>
-          )}
-          {orders.length > 0 && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Pedido</TableHead>
-                  <TableHead>Cliente</TableHead>
-                  <TableHead>Dirección</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead className="w-64" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {orders.map((order) => (
-                  <TableRow key={order.id}>
-                    <TableCell className="font-data">#{order.orderNumber}</TableCell>
-                    <TableCell>
-                      <p className="text-sm">{order.customerName ?? "—"}</p>
-                      <p className="text-text-muted text-xs">
-                        {order.customerPhone ?? ""}
-                      </p>
-                    </TableCell>
-                    <TableCell className="text-text-muted text-sm">
-                      {[order.shippingAddress, order.shippingCity]
-                        .filter(Boolean)
-                        .join(", ") || "—"}
-                      {order.suggestedZoneName && (
-                        <p className="text-text-muted-2 text-xs">
-                          Zona sugerida: {order.suggestedZoneName}
-                        </p>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={STATUS_VARIANT[order.status]}>
-                        {STATUS_LABEL[order.status]}
+      <Card className="overflow-hidden">
+        <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
+          <CardTitle className="text-base">Pedidos</CardTitle>
+          <Select
+            aria-label="Filtrar por estado"
+            className="w-44"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as OrderStatus | "")}
+          >
+            <option value="">Todos</option>
+            {(Object.keys(STATUS_LABEL) as OrderStatus[]).map((s) => (
+              <option key={s} value={s}>
+                {STATUS_LABEL[s]}
+              </option>
+            ))}
+          </Select>
+        </CardHeader>
+        {loading && !orders.length && <TableSkeleton columns={5} rows={5} />}
+        {error && (
+          <ErrorState
+            title="No se pudieron cargar los pedidos"
+            description={error.message}
+            onRetry={() => void loadOrders()}
+          />
+        )}
+        {!loading && !error && orders.length === 0 && (
+          <p className="text-text-muted p-6 text-sm">
+            {connection
+              ? 'No hay pedidos todavía — probá "Sincronizar ahora".'
+              : 'No hay pedidos todavía — conectá Tienda Nube o cargá un "Pedido manual".'}
+          </p>
+        )}
+        {orders.length > 0 && (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Pedido</TableHead>
+                <TableHead>Cliente</TableHead>
+                <TableHead>Dirección</TableHead>
+                <TableHead>Estado</TableHead>
+                <TableHead className="w-64" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {orders.map((order) => (
+                <TableRow key={order.id}>
+                  <TableCell className="font-data">
+                    #{order.orderNumber}
+                    {order.source === "manual" && (
+                      <Badge variant="neutral" className="ml-2">
+                        Manual
                       </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        {(order.status === "PENDING" || order.status === "ASSIGNED") && (
-                          <Select
-                            aria-label="Asignar a turno"
-                            className="w-36"
-                            value={order.shiftId ?? ""}
-                            disabled={busyOrderId === order.id}
-                            onChange={(e) => void handleAssign(order.id, e.target.value)}
-                          >
-                            <option value="" disabled>
-                              Asignar a…
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <p className="text-sm">{order.customerName ?? "—"}</p>
+                    <p className="text-text-muted text-xs">{order.customerPhone ?? ""}</p>
+                  </TableCell>
+                  <TableCell className="text-text-muted text-sm">
+                    {[order.shippingAddress, order.shippingCity]
+                      .filter(Boolean)
+                      .join(", ") || "—"}
+                    {order.suggestedZoneName && (
+                      <p className="text-text-muted-2 text-xs">
+                        Zona sugerida: {order.suggestedZoneName}
+                      </p>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={STATUS_VARIANT[order.status]}>
+                      {STATUS_LABEL[order.status]}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      {(order.status === "PENDING" || order.status === "ASSIGNED") && (
+                        <Select
+                          aria-label="Asignar a turno"
+                          className="w-36"
+                          value={order.shiftId ?? ""}
+                          disabled={busyOrderId === order.id}
+                          onChange={(e) => void handleAssign(order.id, e.target.value)}
+                        >
+                          <option value="" disabled>
+                            Asignar a…
+                          </option>
+                          {shifts.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.driver.fullName} · {s.zone.name}
                             </option>
-                            {shifts.map((s) => (
-                              <option key={s.id} value={s.id}>
-                                {s.driver.fullName} · {s.zone.name}
-                              </option>
-                            ))}
-                          </Select>
-                        )}
-                        {order.status !== "DELIVERED" && order.status !== "CANCELLED" && (
+                          ))}
+                        </Select>
+                      )}
+                      {order.status !== "DELIVERED" && order.status !== "CANCELLED" && (
+                        <Button
+                          size="icon-sm"
+                          variant="outline"
+                          disabled={busyOrderId === order.id}
+                          title="Marcar entregado"
+                          onClick={() => void handleDeliver(order)}
+                        >
+                          <Check className="size-4" />
+                        </Button>
+                      )}
+                      {order.status !== "DELIVERED" &&
+                        order.status !== "FAILED" &&
+                        order.status !== "CANCELLED" && (
                           <Button
                             size="icon-sm"
                             variant="outline"
                             disabled={busyOrderId === order.id}
-                            title="Marcar entregado"
-                            onClick={() => void handleDeliver(order)}
+                            title="Marcar no entregado"
+                            onClick={() => void handleFail(order.id)}
                           >
-                            <Check className="size-4" />
+                            <X className="size-4" />
                           </Button>
                         )}
-                        {order.status !== "DELIVERED" &&
-                          order.status !== "FAILED" &&
-                          order.status !== "CANCELLED" && (
-                            <Button
-                              size="icon-sm"
-                              variant="outline"
-                              disabled={busyOrderId === order.id}
-                              title="Marcar no entregado"
-                              onClick={() => void handleFail(order.id)}
-                            >
-                              <X className="size-4" />
-                            </Button>
-                          )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </Card>
-      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </Card>
     </div>
   );
 }

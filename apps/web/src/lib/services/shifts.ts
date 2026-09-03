@@ -16,6 +16,7 @@ import { uploadFlexScreenshot } from "@/lib/storage";
 import { REPORT_INTERVAL_HOURS, REPORT_LATE_MINUTES } from "@fym/shared";
 import { haversineDistanceMeters } from "@fym/geo";
 import type { DriverAuthContext } from "@/lib/services/driver-qr";
+import type { ActorContext } from "@/lib/services/zones";
 
 /**
  * TURNOS DEL CHOFER (FYM)
@@ -50,6 +51,7 @@ const shiftCtxSelect = {
     endedAt: driverShifts.endedAt,
     undeliveredCount: driverShifts.undeliveredCount,
     notes: driverShifts.notes,
+    assignedByAdmin: driverShifts.assignedByAdmin,
   },
   zone: {
     id: zones.id,
@@ -206,6 +208,133 @@ export async function startShift(
         toStatus: shift.status,
         occurredAt: now,
         metadata: { zone: zone.name, packageCount: input.packageCount, aiAnalysis },
+      },
+      tx,
+    );
+  });
+
+  return shift;
+}
+
+/**
+ * El admin/despachante PRE-ARMA el turno de un chofer (zona + paquetes)
+ * en vez de que lo declare él — pedido de Fede. Sin captura de Flex ni
+ * confirmación de IA/depósito: el chofer solo tiene que tocar "Iniciar"
+ * (`startAssignedShift`) para pasar a ACTIVE.
+ */
+export async function assignShiftByAdmin(
+  orgId: string,
+  driverId: string,
+  zoneInput: { zoneId: string } | { zoneName: string },
+  packageCount: number,
+  actor: ActorContext,
+  log = logDomainEvent,
+) {
+  const current = await getCurrentShiftForDriver(driverId, orgId);
+  if (current) throw Errors.conflict("este chofer ya tiene un turno en curso");
+
+  const zone =
+    "zoneName" in zoneInput
+      ? await findOrCreateZoneByName(orgId, actor, zoneInput.zoneName, log)
+      : await (async () => {
+          const [z] = await db
+            .select()
+            .from(zones)
+            .where(
+              and(
+                eq(zones.id, zoneInput.zoneId),
+                eq(zones.orgId, orgId),
+                isNull(zones.deletedAt),
+              ),
+            )
+            .limit(1);
+          if (!z) throw Errors.notFound("zona no encontrada");
+          return z;
+        })();
+  if (!zone.isActive) throw Errors.validation("la zona no está activa");
+
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+
+  const [shift] = await db
+    .insert(driverShifts)
+    .values({
+      orgId,
+      driverId,
+      zoneId: zone.id,
+      shiftDate: today,
+      packageCount,
+      status: "PENDING",
+      startedAt: now,
+      assignedByAdmin: true,
+    })
+    .returning();
+  if (!shift) throw Errors.internal("no se pudo asignar el turno");
+
+  await db.transaction(async (tx) => {
+    await log(
+      {
+        orgId,
+        entityType: "SHIFT",
+        entityId: shift.id,
+        eventType: "SHIFT_ASSIGNED_BY_ADMIN",
+        actorId: actor.actorId,
+        actorRole: actor.actorRole,
+        toStatus: "PENDING",
+        occurredAt: now,
+        metadata: { zone: zone.name, packageCount },
+      },
+      tx,
+    );
+  });
+
+  return shift;
+}
+
+/** El chofer toca "Iniciar" sobre un turno que le pre-armó el admin
+ * (`assignShiftByAdmin`) — a diferencia de `confirmShiftManually` (lo
+ * confirma alguien del depósito), acá lo inicia el propio chofer. Re-
+ * establece `startedAt` al momento real en que arranca (puede haber
+ * pasado tiempo desde que el admin lo armó). */
+export async function startAssignedShift(
+  driver: DriverAuthContext,
+  log = logDomainEvent,
+) {
+  const [pending] = await db
+    .select()
+    .from(driverShifts)
+    .where(
+      and(
+        eq(driverShifts.driverId, driver.userId),
+        eq(driverShifts.orgId, driver.orgId),
+        eq(driverShifts.status, "PENDING"),
+        eq(driverShifts.assignedByAdmin, true),
+        isNull(driverShifts.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (!pending) throw Errors.notFound("no tenés un turno asignado esperando");
+
+  const now = new Date();
+  const [shift] = await db
+    .update(driverShifts)
+    .set({ status: "ACTIVE", startedAt: now, updatedAt: now })
+    .where(eq(driverShifts.id, pending.id))
+    .returning();
+  if (!shift) throw Errors.internal("no se pudo iniciar el turno");
+
+  await db.transaction(async (tx) => {
+    await log(
+      {
+        orgId: driver.orgId,
+        entityType: "SHIFT",
+        entityId: shift.id,
+        eventType: "SHIFT_STARTED",
+        actorId: driver.userId,
+        actorRole: "driver",
+        fromStatus: "PENDING",
+        toStatus: "ACTIVE",
+        occurredAt: now,
       },
       tx,
     );

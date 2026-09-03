@@ -43,7 +43,12 @@ import { DeliveryPointsMap, type DeliveryPoint } from "@/components/delivery-poi
 interface Session {
   user: { id: string; email: string; fullName: string; phone: string | null };
   hasActiveShift: boolean;
-  activeShift: { id: string; startedAt: string; status: "PENDING" | "ACTIVE" } | null;
+  activeShift: {
+    id: string;
+    startedAt: string;
+    status: "PENDING" | "ACTIVE";
+    assignedByAdmin?: boolean;
+  } | null;
 }
 
 interface Zone {
@@ -61,6 +66,9 @@ interface ShiftState {
   startedAt: string;
   zoneId: string;
   status: "PENDING" | "ACTIVE";
+  /** El admin/despachante pre-armó este turno (pedido de Fede) — el
+   * chofer no declaró nada, solo tiene que tocar "Iniciar". */
+  assignedByAdmin?: boolean;
 }
 
 /** Pedido de Tienda Nube asignado al turno — "Mis pedidos" (pedido de
@@ -228,6 +236,7 @@ function ChoferAppInner() {
             startedAt: data.activeShift.startedAt,
             zoneId: "",
             status: data.activeShift.status,
+            assignedByAdmin: data.activeShift.assignedByAdmin,
           });
           shiftRef.current = { zoneId: "", active: true };
         }
@@ -465,6 +474,24 @@ function ChoferAppInner() {
             : "Turno arrancado — esperando que el depósito confirme la cantidad.",
         variant: "success",
       });
+    } catch (err) {
+      toast({ title: errMessage(err), variant: "error" });
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  async function handleStartAssigned() {
+    setStarting(true);
+    try {
+      const data = await driverApi<{ shift: ShiftState }>("/api/chofer/shifts/start", {
+        method: "POST",
+      });
+      setShift(data.shift);
+      shiftRef.current = { zoneId: data.shift.zoneId, active: true };
+      setLastReportAt(new Date(data.shift.startedAt));
+      setTimer("00:00:00");
+      toast({ title: "Turno iniciado — ¡a repartir!", variant: "success" });
     } catch (err) {
       toast({ title: errMessage(err), variant: "error" });
     } finally {
@@ -718,20 +745,45 @@ function ChoferAppInner() {
         </>
       )}
 
-      {/* Turno PENDING: esperando que la IA o el depósito confirmen */}
-      {!loadingSession && token && shift && shift.status === "PENDING" && (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
-            <Clock className="text-primary size-10 animate-pulse" />
-            <p className="font-medium">Esperando confirmación</p>
-            <p className="text-text-muted text-sm">
-              Declaraste {shift.packageCount} paquetes. La IA está revisando la captura —
-              si no le cierra el número, alguien del depósito la revisa a mano. Esta
-              pantalla se actualiza sola.
-            </p>
-          </CardContent>
-        </Card>
-      )}
+      {/* Turno PENDING asignado por el admin: solo falta tocar "Iniciar" */}
+      {!loadingSession &&
+        token &&
+        shift &&
+        shift.status === "PENDING" &&
+        shift.assignedByAdmin && (
+          <Card>
+            <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
+              <Play className="text-primary size-10" />
+              <p className="font-medium">Turno asignado</p>
+              <p className="text-text-muted text-sm">
+                El depósito te armó el turno: {shift.packageCount} paquetes. Tocá
+                &quot;Iniciar&quot; cuando salgas a repartir.
+              </p>
+              <Button disabled={starting} onClick={() => void handleStartAssigned()}>
+                <Play /> {starting ? "Iniciando…" : "Iniciar"}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+      {/* Turno PENDING declarado por el chofer: esperando que la IA o el depósito confirmen */}
+      {!loadingSession &&
+        token &&
+        shift &&
+        shift.status === "PENDING" &&
+        !shift.assignedByAdmin && (
+          <Card>
+            <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
+              <Clock className="text-primary size-10 animate-pulse" />
+              <p className="font-medium">Esperando confirmación</p>
+              <p className="text-text-muted text-sm">
+                Declaraste {shift.packageCount} paquetes. La IA está revisando la captura
+                — si no le cierra el número, alguien del depósito la revisa a mano. Esta
+                pantalla se actualiza sola.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
       {/* Turno activo */}
       {!loadingSession && token && shift && shift.status === "ACTIVE" && (

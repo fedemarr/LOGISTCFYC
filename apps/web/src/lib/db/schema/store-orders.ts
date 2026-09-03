@@ -42,6 +42,11 @@ export const storeOrders = pgTable("store_orders", {
   /** `shipping_status` crudo de Tienda Nube — referencia, no maneja
    * nuestra lógica. */
   externalStatus: text("external_status"),
+  /** "tiendanube" (sincronizado) o "manual" (cargado a mano desde el
+   * panel, pedido de Fede: poder probar sin depender de tener Tienda
+   * Nube conectada). Un pedido manual NO tiene fulfillment-order real en
+   * Tienda Nube — `markOrderDelivered` no intenta avisarle. */
+  source: text("source").notNull().default("tiendanube"),
   shiftId: uuid("shift_id").references(() => driverShifts.id),
   /** Payload completo del pedido tal cual lo devolvió Tienda Nube. */
   rawPayload: jsonb("raw_payload"),
@@ -71,6 +76,7 @@ export const storeOrdersToSelect = {
   suggestedZoneId: storeOrders.suggestedZoneId,
   status: storeOrders.status,
   externalStatus: storeOrders.externalStatus,
+  source: storeOrders.source,
   shiftId: storeOrders.shiftId,
   syncedAt: storeOrders.syncedAt,
   deliveredAt: storeOrders.deliveredAt,

@@ -58,6 +58,12 @@ export const driverShifts = pgTable("driver_shifts", {
     confidence: "high" | "medium" | "low";
     reasoning: string;
   } | null>(),
+  /** El admin/despachante pre-armó este turno (zona + paquetes) para el
+   * chofer en vez de que lo declare él — pedido de Fede: "que el admin
+   * pueda pre-armar el turno". Arranca igual en PENDING, pero sin
+   * captura de Flex ni confirmación de IA/depósito: el chofer solo tiene
+   * que tocar "Iniciar" (`startAssignedShift`) para pasar a ACTIVE. */
+  assignedByAdmin: boolean("assigned_by_admin").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });
@@ -79,6 +85,7 @@ export const driverShiftsToSelect = {
   confirmedAt: driverShifts.confirmedAt,
   aiConfirmed: driverShifts.aiConfirmed,
   aiAnalysis: driverShifts.aiAnalysis,
+  assignedByAdmin: driverShifts.assignedByAdmin,
 } as const;
 
 export type DriverShift = typeof driverShifts.$inferSelect;

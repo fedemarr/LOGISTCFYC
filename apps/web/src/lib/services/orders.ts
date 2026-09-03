@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { haversineDistanceMeters } from "@fym/geo";
 import { Errors } from "@/lib/api/errors";
@@ -46,10 +47,16 @@ export function mapTiendanubeOrder(order: TiendanubeOrder) {
   };
 }
 
+interface AddressParts {
+  shippingAddress: string | null;
+  shippingCity: string | null;
+  shippingProvince: string | null;
+}
+
 /** Arma el texto a geocodificar a partir de las partes de la dirección —
  * lo más específico que haya, con Argentina al final para sesgar el
  * resultado (mismo criterio que `findOrCreateZoneByName`). */
-function addressToGeocode(mapped: ReturnType<typeof mapTiendanubeOrder>): string | null {
+function addressToGeocode(mapped: AddressParts): string | null {
   const parts = [
     mapped.shippingAddress,
     mapped.shippingCity,
@@ -95,7 +102,7 @@ async function findContainingZone(
  * sugerida y se asigna a mano, no bloquea el sync de los demás. */
 async function geocodeAndSuggestZone(
   orgId: string,
-  mapped: ReturnType<typeof mapTiendanubeOrder>,
+  mapped: AddressParts,
 ): Promise<{ lat: number | null; lng: number | null; suggestedZoneId: string | null }> {
   const query = addressToGeocode(mapped);
   if (!query) return { lat: null, lng: null, suggestedZoneId: null };
@@ -202,6 +209,72 @@ export async function listOrdersForShift(orgId: string, shiftId: string) {
       ),
     )
     .orderBy(desc(storeOrders.syncedAt));
+}
+
+/**
+ * Pedido cargado A MANO desde el panel (pedido de Fede: "poder cargar
+ * pedidos para hacer pruebas manualmente, que esté la opción Tienda Nube
+ * y la opción manual") — mismo flujo de acá en más (asignar, mapa,
+ * entregar) que uno sincronizado. `externalId` se inventa (no existe en
+ * Tienda Nube) y queda marcado `source: "manual"` para que
+ * `markOrderDelivered` no intente avisarle a Tienda Nube de un pedido
+ * que no tiene ahí.
+ */
+export async function createManualOrder(
+  orgId: string,
+  data: {
+    orderNumber?: string;
+    customerName?: string;
+    customerPhone?: string;
+    shippingAddress?: string;
+    shippingCity?: string;
+    shippingProvince?: string;
+  },
+  actor: ActorContext,
+  log = logDomainEvent,
+) {
+  const mapped: AddressParts = {
+    shippingAddress: data.shippingAddress?.trim() || null,
+    shippingCity: data.shippingCity?.trim() || null,
+    shippingProvince: data.shippingProvince?.trim() || null,
+  };
+  const geo = await geocodeAndSuggestZone(orgId, mapped);
+  const now = new Date();
+
+  const [created] = await db
+    .insert(storeOrders)
+    .values({
+      orgId,
+      externalId: `manual-${randomUUID()}`,
+      orderNumber: data.orderNumber?.trim() || `M-${Date.now().toString().slice(-6)}`,
+      customerName: data.customerName?.trim() || null,
+      customerPhone: data.customerPhone?.trim() || null,
+      ...mapped,
+      ...geo,
+      status: "PENDING",
+      source: "manual",
+      syncedAt: now,
+    })
+    .returning();
+  if (!created) throw Errors.internal("no se pudo crear el pedido");
+
+  await db.transaction(async (tx) => {
+    await log(
+      {
+        orgId,
+        entityType: "ORDER",
+        entityId: created.id,
+        eventType: "ORDER_CREATED_MANUAL",
+        actorId: actor.actorId,
+        actorRole: actor.actorRole,
+        toStatus: "PENDING",
+        occurredAt: now,
+      },
+      tx,
+    );
+  });
+
+  return created;
 }
 
 async function getOrder(orgId: string, orderId: string) {
@@ -380,6 +453,12 @@ export async function markOrderDelivered(
       tx,
     );
   });
+
+  // Pedido manual (pedido de Fede: cargar a mano para probar) — no existe
+  // en Tienda Nube, no hay nada que avisarle.
+  if (order.source === "manual") {
+    return { order: updated, pushedToTiendaNube: true };
+  }
 
   const conn = await getConnectionWithToken(orgId);
   if (!conn)

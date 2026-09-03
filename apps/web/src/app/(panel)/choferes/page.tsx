@@ -2,7 +2,15 @@
 
 import * as React from "react";
 import QRCode from "qrcode";
-import { Check, QrCode, RefreshCw, ShieldAlert, Truck, X } from "lucide-react";
+import {
+  Check,
+  ClipboardList,
+  QrCode,
+  RefreshCw,
+  ShieldAlert,
+  Truck,
+  X,
+} from "lucide-react";
 import { api } from "@/lib/api/client";
 import { PageHeader } from "@/components/page-header";
 import { ErrorState, TableSkeleton } from "@/components/states";
@@ -15,6 +23,8 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -44,6 +54,11 @@ interface DriverItem {
   hasQr: boolean;
 }
 
+interface ZoneOption {
+  id: string;
+  name: string;
+}
+
 interface PendingShift {
   id: string;
   packageCount: number;
@@ -69,6 +84,48 @@ export default function ChoferesPage() {
 
   const [pending, setPending] = React.useState<PendingShift[]>([]);
   const [pendingBusyId, setPendingBusyId] = React.useState<string | null>(null);
+
+  // Asignar turno (pedido de Fede: "que el admin pueda pre-armar el
+  // turno") — zona + paquetes, el chofer solo toca "Iniciar" en la PWA.
+  const [zones, setZones] = React.useState<ZoneOption[]>([]);
+  const [assignDriver, setAssignDriver] = React.useState<DriverItem | null>(null);
+  const [assignZoneName, setAssignZoneName] = React.useState("");
+  const [assignPackageCount, setAssignPackageCount] = React.useState("");
+  const [assigning, setAssigning] = React.useState(false);
+
+  React.useEffect(() => {
+    api
+      .get<{ zones: ZoneOption[] }>("/api/zones")
+      .then((data) => setZones(data.zones))
+      .catch(() => {
+        // el datalist de sugerencias no bloquea el resto de la pantalla
+      });
+  }, []);
+
+  async function handleAssignShift() {
+    if (!assignDriver || !assignZoneName.trim() || !assignPackageCount) return;
+    setAssigning(true);
+    try {
+      await api.post(`/api/choferes/${assignDriver.id}/assign-shift`, {
+        zoneName: assignZoneName.trim(),
+        packageCount: Number(assignPackageCount),
+      });
+      toast({
+        title: `Turno asignado a ${assignDriver.fullName} — solo falta que toque "Iniciar"`,
+        variant: "success",
+      });
+      setAssignDriver(null);
+      setAssignZoneName("");
+      setAssignPackageCount("");
+    } catch (err) {
+      toast({
+        title: err instanceof Error ? err.message : "No se pudo asignar el turno",
+        variant: "error",
+      });
+    } finally {
+      setAssigning(false);
+    }
+  }
 
   function loadPending() {
     return api
@@ -289,7 +346,7 @@ export default function ChoferesPage() {
                 <TableHead>Teléfono</TableHead>
                 <TableHead>QR</TableHead>
                 <TableHead>Estado</TableHead>
-                <TableHead className="w-32" />
+                <TableHead className="w-64" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -316,10 +373,19 @@ export default function ChoferesPage() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Button size="sm" onClick={() => void handleQr(driver)}>
-                      {driver.hasQr ? <RefreshCw /> : <QrCode />}
-                      {driver.hasQr ? "Rotar QR" : "Generar QR"}
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button size="sm" onClick={() => void handleQr(driver)}>
+                        {driver.hasQr ? <RefreshCw /> : <QrCode />}
+                        {driver.hasQr ? "Rotar QR" : "Generar QR"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setAssignDriver(driver)}
+                      >
+                        <ClipboardList /> Asignar turno
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -355,6 +421,58 @@ export default function ChoferesPage() {
                 className="size-64 rounded-lg border"
               />
             )}
+          </div>
+        </DialogContent>
+      </DialogRoot>
+
+      <DialogRoot
+        open={!!assignDriver}
+        onOpenChange={(open: boolean) => {
+          if (!open) {
+            setAssignDriver(null);
+            setAssignZoneName("");
+            setAssignPackageCount("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogTitle>Asignar turno a {assignDriver?.fullName}</DialogTitle>
+          <DialogDescription>
+            Le arma el turno vos — el chofer no declara nada: escanea el QR y solo toca
+            &quot;Iniciar&quot;.
+          </DialogDescription>
+          <div className="flex flex-col gap-3 py-2">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="assign-zone">Zona de reparto</Label>
+              <Input
+                id="assign-zone"
+                list="assign-zone-suggestions"
+                value={assignZoneName}
+                onChange={(e) => setAssignZoneName(e.target.value)}
+                placeholder="ej. Moreno, Buenos Aires"
+              />
+              <datalist id="assign-zone-suggestions">
+                {zones.map((z) => (
+                  <option key={z.id} value={z.name} />
+                ))}
+              </datalist>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="assign-count">Paquetes</Label>
+              <Input
+                id="assign-count"
+                type="number"
+                min={1}
+                value={assignPackageCount}
+                onChange={(e) => setAssignPackageCount(e.target.value)}
+              />
+            </div>
+            <Button
+              disabled={assigning || !assignZoneName.trim() || !assignPackageCount}
+              onClick={() => void handleAssignShift()}
+            >
+              <ClipboardList /> {assigning ? "Asignando…" : "Asignar turno"}
+            </Button>
           </div>
         </DialogContent>
       </DialogRoot>
