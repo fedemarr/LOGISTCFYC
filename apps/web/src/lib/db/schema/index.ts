@@ -10,3 +10,5 @@ export * from "./driver-shifts";
 export * from "./shift-reports";
 export * from "./zone-alerts";
 export * from "./delivery-alerts";
+export * from "./tiendanube-connections";
+export * from "./store-orders";

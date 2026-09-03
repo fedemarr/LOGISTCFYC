@@ -30,6 +30,7 @@ const PAGES = [
   "/alertas",
   "/metricas",
   "/monitoreo",
+  "/pedidos",
   "/usuarios",
 ];
 

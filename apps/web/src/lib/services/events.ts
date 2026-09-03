@@ -16,7 +16,7 @@ import { db } from "@/lib/db";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-export const DOMAIN_ENTITY_TYPES = ["SHIFT", "ZONE", "ALERT", "USER"] as const;
+export const DOMAIN_ENTITY_TYPES = ["SHIFT", "ZONE", "ALERT", "USER", "ORDER"] as const;
 export type DomainEntityType = (typeof DOMAIN_ENTITY_TYPES)[number];
 
 export interface DomainEventParams {

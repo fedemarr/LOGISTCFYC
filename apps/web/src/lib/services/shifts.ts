@@ -341,6 +341,28 @@ export async function listPendingShifts(orgId: string) {
     .orderBy(asc(driverShifts.startedAt));
 }
 
+/** Turnos ACTIVE de la org — para elegir a quién asignarle un pedido de
+ * Tienda Nube (`services/orders.ts`). */
+export async function listActiveShiftsForAssignment(orgId: string) {
+  return db
+    .select({
+      id: driverShifts.id,
+      driver: { id: users.id, fullName: users.fullName },
+      zone: { id: zones.id, name: zones.name },
+    })
+    .from(driverShifts)
+    .innerJoin(users, eq(users.id, driverShifts.driverId))
+    .innerJoin(zones, eq(zones.id, driverShifts.zoneId))
+    .where(
+      and(
+        eq(driverShifts.orgId, orgId),
+        eq(driverShifts.status, "ACTIVE"),
+        isNull(driverShifts.deletedAt),
+      ),
+    )
+    .orderBy(asc(users.fullName));
+}
+
 export async function endShift(
   driver: DriverAuthContext,
   input: { undeliveredCount: number; notes?: string },

@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   MapPinned,
   Radio,
+  ShoppingBag,
   Truck,
   Users,
   type LucideIcon,
@@ -24,6 +25,8 @@ import { cn } from "@/lib/utils";
  * - Zonas: CRUD de geocercas.
  * - Alertas: cola de alertas de geocerca (llamar al chofer).
  * - Métricas: resumen diario por chofer.
+ * - Pedidos: sincronización con Tienda Nube (pedido de un cliente,
+ *   03/09/2026) — ver PROMPT-ALERTAS-FINANZAS.md.
  * - Usuarios: admin (alta de usuarios del panel y choferes).
  */
 const NAV_ITEMS: {
@@ -66,6 +69,12 @@ const NAV_ITEMS: {
     href: "/metricas",
     label: "Métricas",
     icon: BarChart3,
+    roles: ["admin", "dispatcher", "warehouse"],
+  },
+  {
+    href: "/pedidos",
+    label: "Pedidos",
+    icon: ShoppingBag,
     roles: ["admin", "dispatcher", "warehouse"],
   },
   {

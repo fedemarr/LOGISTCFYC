@@ -1,10 +1,13 @@
 /**
  * Constantes y tipos de dominio del sistema FYM (control de choferes).
  *
- * El sistema no rastrea paquetes individuales ("envíos flex" los maneja en
- * paralelo): FYM controla el turno de cada chofer — zona asignada, cantidad
- * de paquetes con la que salió, avances reportados cada 2-3 h, ubicación en
- * tiempo real y alertas de geocerca.
+ * El núcleo del sistema NO rastrea paquetes individuales: FYM controla el
+ * turno de cada chofer — zona asignada, cantidad de paquetes con la que
+ * salió, avances reportados cada 2-3 h, ubicación en tiempo real y alertas
+ * de geocerca. La integración con Tienda Nube (`store_orders`, pedido de
+ * Fede) es la EXCEPCIÓN deliberada: ahí sí importa el pedido individual
+ * (sincronizado desde la tienda), porque hay que devolverle a Tienda Nube
+ * el estado de cada uno por separado.
  */
 
 /**
@@ -59,3 +62,20 @@ export const REPORT_LATE_MINUTES = REPORT_INTERVAL_HOURS * 60 + 20;
 
 /** Prefijo del QR de chofer (para distinguirlo de otros códigos). */
 export const DRIVER_QR_PREFIX = "FYM-DRIVER-";
+
+/**
+ * Estado de un pedido sincronizado desde Tienda Nube (`store_orders`).
+ * `PENDING` = recién sincronizado, sin asignar a ningún turno. `ASSIGNED`
+ * = un dispatcher lo linkeó a un turno de chofer. `DELIVERED`/`FAILED` los
+ * carga el panel y dispara el push de vuelta a Tienda Nube (marca el
+ * `fulfillment-order` como `DELIVERED`). `CANCELLED` = se dio de baja acá
+ * (no se sincroniza más, no se toca Tienda Nube).
+ */
+export const STORE_ORDER_STATUSES = [
+  "PENDING",
+  "ASSIGNED",
+  "DELIVERED",
+  "FAILED",
+  "CANCELLED",
+] as const;
+export type StoreOrderStatus = (typeof STORE_ORDER_STATUSES)[number];

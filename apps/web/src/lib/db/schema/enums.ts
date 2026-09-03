@@ -22,6 +22,14 @@ const DELIVERY_ALERT_REASON_MIRROR = ["NOT_HOME", "REFUSED", "OTHER"] as const;
 
 const DELIVERY_ALERT_STATUS_MIRROR = ["OPEN", "CONTACTED", "RESOLVED"] as const;
 
+const STORE_ORDER_STATUS_MIRROR = [
+  "PENDING",
+  "ASSIGNED",
+  "DELIVERED",
+  "FAILED",
+  "CANCELLED",
+] as const;
+
 export const userRoleEnum = pgEnum("user_role", ROLES_MIRROR);
 
 export const shiftStatusEnum = pgEnum("shift_status", SHIFT_STATUS_MIRROR);
@@ -40,9 +48,15 @@ export const deliveryAlertStatusEnum = pgEnum(
   DELIVERY_ALERT_STATUS_MIRROR,
 );
 
+export const storeOrderStatusEnum = pgEnum(
+  "store_order_status",
+  STORE_ORDER_STATUS_MIRROR,
+);
+
 export const eventEntityTypeEnum = pgEnum("event_entity_type", [
   "SHIFT",
   "ZONE",
   "ALERT",
   "USER",
+  "ORDER",
 ]);
