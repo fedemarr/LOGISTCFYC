@@ -4,9 +4,12 @@ import * as React from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   Camera,
+  CheckCircle2,
   Clock,
   Flag,
   Layers,
+  MapPin,
+  Navigation,
   Package,
   Phone,
   Play,
@@ -26,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
+import { DeliveryPointsMap, type DeliveryPoint } from "@/components/delivery-points-map";
 
 /**
  * APP DEL CHOFER (FYM) — PWA mobile-first.
@@ -57,6 +61,20 @@ interface ShiftState {
   startedAt: string;
   zoneId: string;
   status: "PENDING" | "ACTIVE";
+}
+
+/** Pedido de Tienda Nube asignado al turno — "Mis pedidos" (pedido de
+ * Fede: apartado de mapa con puntos a entregar + foto de confirmación). */
+interface Order {
+  id: string;
+  orderNumber: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  shippingAddress: string | null;
+  shippingCity: string | null;
+  lat: number | null;
+  lng: number | null;
+  status: "PENDING" | "ASSIGNED" | "DELIVERED" | "FAILED" | "CANCELLED";
 }
 
 /** Comprime una imagen (canvas, máx 1600px de lado, JPEG 75%) antes de
@@ -156,6 +174,15 @@ function ChoferAppInner() {
   const [deliveryPhone, setDeliveryPhone] = React.useState("");
   const [deliveryNote, setDeliveryNote] = React.useState("");
   const [reportingDelivery, setReportingDelivery] = React.useState(false);
+
+  // Mis pedidos (pedido de Fede: mapa + marcar entregado con foto) — los
+  // pedidos de Tienda Nube que el despachante asignó a este turno.
+  const [orders, setOrders] = React.useState<Order[]>([]);
+  const [deliveringOrderId, setDeliveringOrderId] = React.useState<string | null>(null);
+  const [deliveryEvidenceFile, setDeliveryEvidenceFile] = React.useState<File | null>(
+    null,
+  );
+  const [submittingDelivery, setSubmittingDelivery] = React.useState(false);
 
   // GPS
   const [gpsStatus, setGpsStatus] = React.useState<"off" | "on" | "error">("off");
@@ -381,6 +408,26 @@ function ChoferAppInner() {
     };
   }, [shift, token]);
 
+  // ── 5. Mis pedidos: cargar y refrescar mientras el turno está ACTIVO ──
+  React.useEffect(() => {
+    if (!token || shift?.status !== "ACTIVE") return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const data = await driverApi<{ orders: Order[] }>("/api/chofer/orders");
+        if (!cancelled) setOrders(data.orders);
+      } catch {
+        // Se ignora — la lista se reintenta sola en el próximo poll.
+      }
+    };
+    void load();
+    const interval = window.setInterval(() => void load(), 20_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [token, shift?.status]);
+
   // ── Registro del service worker (PWA) ──
   React.useEffect(() => {
     if ("serviceWorker" in navigator) {
@@ -480,6 +527,45 @@ function ChoferAppInner() {
       toast({ title: errMessage(err), variant: "error" });
     } finally {
       setReportingDelivery(false);
+    }
+  }
+
+  function openInMaps(order: Order) {
+    const url =
+      order.lat != null && order.lng != null
+        ? `https://www.google.com/maps/dir/?api=1&destination=${order.lat},${order.lng}`
+        : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+            [order.shippingAddress, order.shippingCity].filter(Boolean).join(", "),
+          )}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  function handleDeliveryEvidenceChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setDeliveryEvidenceFile(e.target.files?.[0] ?? null);
+  }
+
+  async function handleConfirmDelivered(orderId: string) {
+    if (!deliveryEvidenceFile) return;
+    setSubmittingDelivery(true);
+    try {
+      const { base64, mimeType } = await compressScreenshot(deliveryEvidenceFile);
+      await driverApi(`/api/chofer/orders/${orderId}/deliver`, {
+        method: "POST",
+        body: JSON.stringify({
+          evidenceBase64: base64,
+          evidenceMimeType: mimeType,
+        }),
+      });
+      setOrders((prev) =>
+        prev.map((o) => (o.id === orderId ? { ...o, status: "DELIVERED" } : o)),
+      );
+      setDeliveringOrderId(null);
+      setDeliveryEvidenceFile(null);
+      toast({ title: "Pedido marcado como entregado", variant: "success" });
+    } catch (err) {
+      toast({ title: errMessage(err), variant: "error" });
+    } finally {
+      setSubmittingDelivery(false);
     }
   }
 
@@ -708,6 +794,135 @@ function ChoferAppInner() {
                   <span className="text-text-muted text-sm">—</span>
                 )}
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <MapPin className="text-primary size-4" /> Mis pedidos
+              </CardTitle>
+              <p className="text-text-muted text-sm">
+                Pedidos de Tienda Nube que te asignaron para este turno.
+              </p>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              {orders.length === 0 ? (
+                <p className="text-text-muted text-sm">
+                  Todavía no te asignaron pedidos.
+                </p>
+              ) : (
+                <>
+                  <div className="h-64 overflow-hidden rounded-md border">
+                    <DeliveryPointsMap
+                      className="h-full w-full"
+                      points={orders
+                        .filter(
+                          (o): o is Order & { lat: number; lng: number } =>
+                            o.lat != null && o.lng != null,
+                        )
+                        .map<DeliveryPoint>((o) => ({
+                          id: o.id,
+                          lat: o.lat,
+                          lng: o.lng,
+                          label: `#${o.orderNumber} — ${o.customerName ?? "sin nombre"}`,
+                          delivered: o.status === "DELIVERED",
+                        }))}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    {orders.map((o) => {
+                      const delivered = o.status === "DELIVERED";
+                      return (
+                        <div
+                          key={o.id}
+                          className="flex flex-col gap-2 rounded-md border p-3"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="flex items-center gap-1.5 text-sm font-medium">
+                                {delivered && (
+                                  <CheckCircle2 className="size-4 text-emerald-500" />
+                                )}
+                                Pedido #{o.orderNumber}
+                              </p>
+                              <p className="text-text-muted text-xs">
+                                {o.customerName ?? "Sin nombre"}
+                                {o.customerPhone ? ` · ${o.customerPhone}` : ""}
+                              </p>
+                              <p className="text-text-muted text-xs">
+                                {[o.shippingAddress, o.shippingCity]
+                                  .filter(Boolean)
+                                  .join(", ") || "Sin dirección"}
+                              </p>
+                            </div>
+                          </div>
+                          {!delivered && (
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openInMaps(o)}
+                              >
+                                <Navigation className="size-4" /> Cómo llegar
+                              </Button>
+                              {deliveringOrderId !== o.id && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={() => {
+                                    setDeliveringOrderId(o.id);
+                                    setDeliveryEvidenceFile(null);
+                                  }}
+                                >
+                                  <Camera className="size-4" /> Marcar entregado
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                          {!delivered && deliveringOrderId === o.id && (
+                            <div className="flex flex-col gap-2 rounded-md border border-dashed p-2">
+                              <Label htmlFor={`evidence-${o.id}`} className="text-xs">
+                                Foto de confirmación (obligatoria)
+                              </Label>
+                              <Input
+                                id={`evidence-${o.id}`}
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                onChange={handleDeliveryEvidenceChange}
+                              />
+                              <div className="flex gap-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  disabled={submittingDelivery || !deliveryEvidenceFile}
+                                  onClick={() => void handleConfirmDelivered(o.id)}
+                                >
+                                  {submittingDelivery ? "Enviando…" : "Confirmar entrega"}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={submittingDelivery}
+                                  onClick={() => {
+                                    setDeliveringOrderId(null);
+                                    setDeliveryEvidenceFile(null);
+                                  }}
+                                >
+                                  Cancelar
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 

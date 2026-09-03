@@ -47,6 +47,9 @@ export const storeOrders = pgTable("store_orders", {
   rawPayload: jsonb("raw_payload"),
   syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
   deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  /** Foto que sube el chofer al marcar el pedido entregado desde la PWA
+   * (bucket privado `order-delivery-evidence`) — path interno, no URL. */
+  evidencePhotoPath: text("evidence_photo_path"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -71,6 +74,7 @@ export const storeOrdersToSelect = {
   shiftId: storeOrders.shiftId,
   syncedAt: storeOrders.syncedAt,
   deliveredAt: storeOrders.deliveredAt,
+  evidencePhotoPath: storeOrders.evidencePhotoPath,
 } as const;
 
 export type StoreOrder = typeof storeOrders.$inferSelect;

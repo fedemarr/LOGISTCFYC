@@ -13,6 +13,7 @@ import {
   type TiendanubeOrder,
 } from "@/lib/services/tiendanube-client";
 import { getConnectionWithToken } from "@/lib/services/tiendanube";
+import { uploadDeliveryEvidence } from "@/lib/storage";
 import type { ActorContext } from "@/lib/services/zones";
 import type { StoreOrderStatus } from "@fym/shared";
 
@@ -187,6 +188,22 @@ export async function listOrders(orgId: string, status?: StoreOrderStatus) {
     .orderBy(desc(storeOrders.syncedAt));
 }
 
+/** Pedidos asignados a UN turno — lo usa la PWA del chofer para mostrar
+ * "mis pedidos" (mapa + lista) del turno que tiene en curso. */
+export async function listOrdersForShift(orgId: string, shiftId: string) {
+  return db
+    .select(storeOrdersToSelect)
+    .from(storeOrders)
+    .where(
+      and(
+        eq(storeOrders.orgId, orgId),
+        eq(storeOrders.shiftId, shiftId),
+        isNull(storeOrders.deletedAt),
+      ),
+    )
+    .orderBy(desc(storeOrders.syncedAt));
+}
+
 async function getOrder(orgId: string, orderId: string) {
   const [order] = await db
     .select()
@@ -323,6 +340,7 @@ export async function markOrderDelivered(
   orderId: string,
   actor: ActorContext,
   log = logDomainEvent,
+  evidencePhotoPath?: string,
 ): Promise<{
   order: typeof storeOrders.$inferSelect;
   pushedToTiendaNube: boolean;
@@ -336,7 +354,12 @@ export async function markOrderDelivered(
   const now = new Date();
   const [updated] = await db
     .update(storeOrders)
-    .set({ status: "DELIVERED", deliveredAt: now, updatedAt: now })
+    .set({
+      status: "DELIVERED",
+      deliveredAt: now,
+      updatedAt: now,
+      ...(evidencePhotoPath ? { evidencePhotoPath } : {}),
+    })
     .where(eq(storeOrders.id, orderId))
     .returning();
   if (!updated) throw Errors.internal("no se pudo marcar el pedido como entregado");
@@ -392,6 +415,54 @@ export async function markOrderDelivered(
     const message = err instanceof Error ? err.message : String(err);
     return { order: updated, pushedToTiendaNube: false, pushError: message };
   }
+}
+
+/**
+ * Marca entregado DESDE LA PWA DEL CHOFER — pedido de Fede: mapa de
+ * entregas + foto de confirmación. A diferencia de `markOrderDelivered`
+ * (llamado por el panel, sin foto), acá la foto es OBLIGATORIA y se
+ * verifica que el pedido esté asignado al turno ACTIVO de ESTE chofer
+ * (un chofer no puede marcar entregado un pedido de otro).
+ */
+export async function markOrderDeliveredByDriver(
+  orgId: string,
+  orderId: string,
+  driver: { userId: string; orgId: string },
+  evidenceBase64: string,
+  evidenceMimeType: string,
+  log = logDomainEvent,
+) {
+  const order = await getOrder(orgId, orderId);
+  if (!order.shiftId) {
+    throw Errors.conflict("este pedido todavía no está asignado a un turno");
+  }
+
+  const [shift] = await db
+    .select({ id: driverShifts.id })
+    .from(driverShifts)
+    .where(
+      and(
+        eq(driverShifts.id, order.shiftId),
+        eq(driverShifts.driverId, driver.userId),
+        eq(driverShifts.orgId, orgId),
+      ),
+    );
+  if (!shift) throw Errors.forbidden("este pedido no está asignado a tu turno");
+
+  const evidencePath = await uploadDeliveryEvidence(
+    orgId,
+    orderId,
+    evidenceBase64,
+    evidenceMimeType,
+  );
+
+  return markOrderDelivered(
+    orgId,
+    orderId,
+    { actorId: driver.userId, actorRole: "driver" },
+    log,
+    evidencePath,
+  );
 }
 
 export async function markOrderFailed(
