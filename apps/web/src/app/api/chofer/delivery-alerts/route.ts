@@ -13,12 +13,18 @@ import { createDeliveryAlert } from "@/lib/services/delivery-alerts";
 
 const createSchema = z.object({
   reason: z.enum(["NOT_HOME", "REFUSED", "OTHER"]),
+  // Ambos opcionales de verdad: el cliente los omite del body (no manda
+  // "" ni null) cuando el chofer los deja en blanco — `JSON.stringify`
+  // descarta las claves en `undefined` — así que sin `.optional()` acá
+  // Zod los rechazaba como "Required" y el reporte fallaba siempre que
+  // faltara el teléfono o la nota (el caso común: "fire-and-forget").
   contactPhone: z
     .string()
     .trim()
     .max(20)
-    .regex(/^[0-9+\s()-]*$/, "teléfono inválido"),
-  note: z.string().trim().max(500),
+    .regex(/^[0-9+\s()-]*$/, "teléfono inválido")
+    .optional(),
+  note: z.string().trim().max(500).optional(),
 });
 
 export async function POST(request: Request): Promise<Response> {
