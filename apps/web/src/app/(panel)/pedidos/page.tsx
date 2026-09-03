@@ -54,6 +54,7 @@ interface OrderItem {
 
 interface AssignableShift {
   id: string;
+  status: "PENDING" | "ACTIVE";
   driver: { id: string; fullName: string };
   zone: { id: string; name: string };
 }
@@ -558,6 +559,7 @@ export default function PedidosPage() {
                       {(matchingShifts.length > 0 ? matchingShifts : shifts).map((s) => (
                         <option key={s.id} value={s.id}>
                           {s.driver.fullName} · {s.zone.name}
+                          {s.status === "PENDING" ? " (sin iniciar)" : ""}
                         </option>
                       ))}
                     </Select>
@@ -665,6 +667,7 @@ export default function PedidosPage() {
                           {shifts.map((s) => (
                             <option key={s.id} value={s.id}>
                               {s.driver.fullName} · {s.zone.name}
+                              {s.status === "PENDING" ? " (sin iniciar)" : ""}
                             </option>
                           ))}
                         </Select>

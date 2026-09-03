@@ -3,8 +3,9 @@ import { listActiveShiftsForAssignment } from "@/lib/services/shifts";
 
 /**
  * TURNOS PARA ASIGNAR (FYM) — staff.
- * GET /api/orders/assignable-shifts → turnos ACTIVE de la org, para el
- * selector de "asignar este pedido a" en /pedidos.
+ * GET /api/orders/assignable-shifts → turnos ACTIVE + PENDING asignados
+ * por el admin, para el selector de "asignar este pedido a" en /pedidos
+ * (ver `listActiveShiftsForAssignment`).
  */
 
 export async function GET(request: Request): Promise<Response> {

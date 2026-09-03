@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, ne } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne, or } from "drizzle-orm";
 import { Errors } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import {
@@ -470,12 +470,20 @@ export async function listPendingShifts(orgId: string) {
     .orderBy(asc(driverShifts.startedAt));
 }
 
-/** Turnos ACTIVE de la org — para elegir a quién asignarle un pedido de
- * Tienda Nube (`services/orders.ts`). */
+/**
+ * Turnos a los que se le puede asignar un pedido de Tienda Nube
+ * (`services/orders.ts`): los ACTIVE (chofer ya en la calle) y los
+ * PENDING que armó el admin (`assignShiftByAdmin`) — a esos ya se les
+ * puede ir cargando pedidos aunque el chofer todavía no tocó "Iniciar",
+ * total el turno ya está confirmado por el admin. Los PENDING que
+ * declaró el chofer (esperando IA/depósito) quedan afuera: si se
+ * rechazan, dejarían pedidos apuntando a un turno borrado.
+ */
 export async function listActiveShiftsForAssignment(orgId: string) {
   return db
     .select({
       id: driverShifts.id,
+      status: driverShifts.status,
       driver: { id: users.id, fullName: users.fullName },
       zone: { id: zones.id, name: zones.name },
     })
@@ -485,8 +493,11 @@ export async function listActiveShiftsForAssignment(orgId: string) {
     .where(
       and(
         eq(driverShifts.orgId, orgId),
-        eq(driverShifts.status, "ACTIVE"),
         isNull(driverShifts.deletedAt),
+        or(
+          eq(driverShifts.status, "ACTIVE"),
+          and(eq(driverShifts.status, "PENDING"), eq(driverShifts.assignedByAdmin, true)),
+        ),
       ),
     )
     .orderBy(asc(users.fullName));
