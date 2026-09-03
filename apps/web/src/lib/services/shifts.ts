@@ -444,8 +444,10 @@ export async function rejectShift(
   });
 }
 
-/** Turnos esperando confirmación del depósito (con datos del chofer y
- * la zona para la lista del panel). */
+/** Turnos DECLARADOS POR EL CHOFER esperando confirmación del depósito
+ * (con datos del chofer y la zona para la lista del panel) — los
+ * `assignedByAdmin` quedan afuera, esos no esperan que nadie los
+ * confirme, solo que el chofer toque "Iniciar" (`startAssignedShift`). */
 export async function listPendingShifts(orgId: string) {
   return db
     .select({
@@ -464,6 +466,7 @@ export async function listPendingShifts(orgId: string) {
       and(
         eq(driverShifts.orgId, orgId),
         eq(driverShifts.status, "PENDING"),
+        eq(driverShifts.assignedByAdmin, false),
         isNull(driverShifts.deletedAt),
       ),
     )
