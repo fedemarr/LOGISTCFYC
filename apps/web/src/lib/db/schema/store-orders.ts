@@ -55,6 +55,11 @@ export const storeOrders = pgTable("store_orders", {
   /** Foto que sube el chofer al marcar el pedido entregado desde la PWA
    * (bucket privado `order-delivery-evidence`) — path interno, no URL. */
   evidencePhotoPath: text("evidence_photo_path"),
+  /** A quién se le entregó (pedido de Fede: "tenés que marcar a quién se
+   * lo entregás y el DNI") — junto con la foto, obligatorios al marcar
+   * entregado desde la PWA del chofer. */
+  recipientName: text("recipient_name"),
+  recipientDni: text("recipient_dni"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -81,6 +86,8 @@ export const storeOrdersToSelect = {
   syncedAt: storeOrders.syncedAt,
   deliveredAt: storeOrders.deliveredAt,
   evidencePhotoPath: storeOrders.evidencePhotoPath,
+  recipientName: storeOrders.recipientName,
+  recipientDni: storeOrders.recipientDni,
 } as const;
 
 export type StoreOrder = typeof storeOrders.$inferSelect;

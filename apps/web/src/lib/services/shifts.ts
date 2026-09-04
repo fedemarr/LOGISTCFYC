@@ -482,6 +482,28 @@ export async function listPendingShifts(orgId: string) {
  * declaró el chofer (esperando IA/depósito) quedan afuera: si se
  * rechazan, dejarían pedidos apuntando a un turno borrado.
  */
+/** El turno "vivo" de UN chofer puntual, mismo criterio que
+ * `listActiveShiftsForAssignment` — lo usa `assignOrderToDriver` para
+ * reusar el turno si ya tiene uno, o decidir que hace falta crear uno. */
+export async function getLiveShiftForDriverAssignment(orgId: string, driverId: string) {
+  const [row] = await db
+    .select({ id: driverShifts.id, status: driverShifts.status })
+    .from(driverShifts)
+    .where(
+      and(
+        eq(driverShifts.orgId, orgId),
+        eq(driverShifts.driverId, driverId),
+        isNull(driverShifts.deletedAt),
+        or(
+          eq(driverShifts.status, "ACTIVE"),
+          and(eq(driverShifts.status, "PENDING"), eq(driverShifts.assignedByAdmin, true)),
+        ),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
 export async function listActiveShiftsForAssignment(orgId: string) {
   return db
     .select({

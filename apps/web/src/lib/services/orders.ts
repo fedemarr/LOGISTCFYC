@@ -14,6 +14,10 @@ import {
   type TiendanubeOrder,
 } from "@/lib/services/tiendanube-client";
 import { getConnectionWithToken } from "@/lib/services/tiendanube";
+import {
+  assignShiftByAdmin,
+  getLiveShiftForDriverAssignment,
+} from "@/lib/services/shifts";
 import { uploadDeliveryEvidence } from "@/lib/storage";
 import type { ActorContext } from "@/lib/services/zones";
 import type { StoreOrderStatus } from "@fym/shared";
@@ -338,6 +342,48 @@ export async function assignOrderToShift(
 }
 
 /**
+ * Asigna el pedido directo A UN CHOFER (pedido de Fede: "sigue sin
+ * aparecer los choferes para asignar" — antes había que ir a Choferes a
+ * armarle un turno primero, ahora se arma solo). Si el chofer ya tiene
+ * un turno vivo (`getLiveShiftForDriverAssignment`) lo reusa; si no,
+ * le arma uno con la zona sugerida del pedido (`assignShiftByAdmin`,
+ * `packageCount` arranca en 1 — no es el número relevante para el pago,
+ * eso lo define lo que declare/cierre el propio chofer).
+ */
+export async function assignOrderToDriver(
+  orgId: string,
+  orderId: string,
+  driverId: string,
+  actor: ActorContext,
+  log = logDomainEvent,
+) {
+  const order = await getOrder(orgId, orderId);
+  const live = await getLiveShiftForDriverAssignment(orgId, driverId);
+
+  let shiftId: string;
+  if (live) {
+    shiftId = live.id;
+  } else {
+    if (!order.suggestedZoneId) {
+      throw Errors.validation(
+        "este pedido no tiene una zona sugerida (no se pudo geocodificar la dirección) — armale un turno a mano en Choferes y elegí la zona vos",
+      );
+    }
+    const shift = await assignShiftByAdmin(
+      orgId,
+      driverId,
+      { zoneId: order.suggestedZoneId },
+      1,
+      actor,
+      log,
+    );
+    shiftId = shift.id;
+  }
+
+  return assignOrderToShift(orgId, orderId, shiftId, actor, log);
+}
+
+/**
  * Asigna en bloque TODOS los pedidos PENDING sugeridos para una zona a un
  * turno de chofer — la parte de "agrupar y asignar en bloque" del pedido
  * de Fede, en vez de ir pedido por pedido con `assignOrderToShift`.
@@ -402,6 +448,49 @@ export async function bulkAssignZoneToShift(
 }
 
 /**
+ * Asigna en bloque los pedidos PENDING de una zona A UN CHOFER (misma
+ * idea que `assignOrderToDriver` pero para "Asignar por zona") — reusa
+ * el turno vivo del chofer si tiene, o le arma uno con `packageCount`
+ * igual a la cantidad de pedidos del grupo.
+ */
+export async function bulkAssignZoneToDriver(
+  orgId: string,
+  zoneId: string,
+  driverId: string,
+  actor: ActorContext,
+  log = logDomainEvent,
+): Promise<{ assigned: number }> {
+  const pendingCount = await db
+    .select({ id: storeOrders.id })
+    .from(storeOrders)
+    .where(
+      and(
+        eq(storeOrders.orgId, orgId),
+        eq(storeOrders.suggestedZoneId, zoneId),
+        eq(storeOrders.status, "PENDING"),
+        isNull(storeOrders.deletedAt),
+      ),
+    );
+  if (pendingCount.length === 0) return { assigned: 0 };
+
+  const live = await getLiveShiftForDriverAssignment(orgId, driverId);
+  const shiftId = live
+    ? live.id
+    : (
+        await assignShiftByAdmin(
+          orgId,
+          driverId,
+          { zoneId },
+          pendingCount.length,
+          actor,
+          log,
+        )
+      ).id;
+
+  return bulkAssignZoneToShift(orgId, zoneId, shiftId, actor, log);
+}
+
+/**
  * Marca el pedido como entregado ACÁ y empuja el estado a Tienda Nube
  * (busca el fulfillment-order del pedido y lo pasa a DELIVERED). Si el
  * push a Tienda Nube falla, el estado local queda igual (ya se entregó
@@ -413,7 +502,7 @@ export async function markOrderDelivered(
   orderId: string,
   actor: ActorContext,
   log = logDomainEvent,
-  evidencePhotoPath?: string,
+  evidence?: { photoPath?: string; recipientName?: string; recipientDni?: string },
 ): Promise<{
   order: typeof storeOrders.$inferSelect;
   pushedToTiendaNube: boolean;
@@ -431,7 +520,9 @@ export async function markOrderDelivered(
       status: "DELIVERED",
       deliveredAt: now,
       updatedAt: now,
-      ...(evidencePhotoPath ? { evidencePhotoPath } : {}),
+      ...(evidence?.photoPath ? { evidencePhotoPath: evidence.photoPath } : {}),
+      ...(evidence?.recipientName ? { recipientName: evidence.recipientName } : {}),
+      ...(evidence?.recipientDni ? { recipientDni: evidence.recipientDni } : {}),
     })
     .where(eq(storeOrders.id, orderId))
     .returning();
@@ -498,10 +589,11 @@ export async function markOrderDelivered(
 
 /**
  * Marca entregado DESDE LA PWA DEL CHOFER — pedido de Fede: mapa de
- * entregas + foto de confirmación. A diferencia de `markOrderDelivered`
- * (llamado por el panel, sin foto), acá la foto es OBLIGATORIA y se
- * verifica que el pedido esté asignado al turno ACTIVO de ESTE chofer
- * (un chofer no puede marcar entregado un pedido de otro).
+ * entregas + foto de confirmación + a quién se le entregó (nombre y
+ * DNI). A diferencia de `markOrderDelivered` (llamado por el panel, sin
+ * ninguno de estos datos), acá son OBLIGATORIOS y se verifica que el
+ * pedido esté asignado al turno ACTIVO de ESTE chofer (un chofer no
+ * puede marcar entregado un pedido de otro).
  */
 export async function markOrderDeliveredByDriver(
   orgId: string,
@@ -509,6 +601,8 @@ export async function markOrderDeliveredByDriver(
   driver: { userId: string; orgId: string },
   evidenceBase64: string,
   evidenceMimeType: string,
+  recipientName: string,
+  recipientDni: string,
   log = logDomainEvent,
 ) {
   const order = await getOrder(orgId, orderId);
@@ -540,7 +634,7 @@ export async function markOrderDeliveredByDriver(
     orderId,
     { actorId: driver.userId, actorRole: "driver" },
     log,
-    evidencePath,
+    { photoPath: evidencePath, recipientName, recipientDni },
   );
 }
 

@@ -50,6 +50,8 @@ interface OrderItem {
   suggestedZoneId: string | null;
   suggestedZoneName: string | null;
   syncedAt: string;
+  recipientName: string | null;
+  recipientDni: string | null;
 }
 
 interface AssignableShift {
@@ -57,6 +59,12 @@ interface AssignableShift {
   status: "PENDING" | "ACTIVE";
   driver: { id: string; fullName: string };
   zone: { id: string; name: string };
+}
+
+interface DriverItem {
+  id: string;
+  fullName: string;
+  isActive: boolean;
 }
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
@@ -100,6 +108,11 @@ export default function PedidosPage() {
 
   const [orders, setOrders] = React.useState<OrderItem[]>([]);
   const [shifts, setShifts] = React.useState<AssignableShift[]>([]);
+  // Choferes activos (pedido de Fede: "sigue sin aparecer los choferes
+  // para asignar" — antes el selector solo mostraba a los que YA tenían
+  // turno; ahora aparecen todos, y si no tiene turno se le arma uno solo
+  // al asignarle el primer pedido, ver `assignOrderToDriver`).
+  const [drivers, setDrivers] = React.useState<DriverItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<Error | null>(null);
   const [statusFilter, setStatusFilter] = React.useState<OrderStatus | "">("");
@@ -122,13 +135,15 @@ export default function PedidosPage() {
   async function loadOrders() {
     try {
       const path = statusFilter ? `/api/orders?status=${statusFilter}` : "/api/orders";
-      const [ordersData, shiftsData] = await Promise.all([
+      const [ordersData, shiftsData, driversData] = await Promise.all([
         api.get<{ orders: OrderItem[] }>(path),
         api.get<{ shifts: AssignableShift[] }>("/api/orders/assignable-shifts"),
+        api.get<{ drivers: DriverItem[] }>("/api/choferes"),
       ]);
       setError(null);
       setOrders(ordersData.orders);
       setShifts(shiftsData.shifts);
+      setDrivers(driversData.drivers.filter((d) => d.isActive));
     } catch (err) {
       setError(err instanceof Error ? err : new Error(String(err)));
     } finally {
@@ -255,14 +270,24 @@ export default function PedidosPage() {
       .sort((a, b) => b.count - a.count);
   }, [orders]);
 
+  /** Pista del turno vivo de un chofer para mostrar en el selector — nada
+   * si no tiene uno (se le arma solo al asignarle el pedido). */
+  function driverHint(driverId: string): string {
+    const s = shifts.find((s) => s.driver.id === driverId);
+    if (!s) return "";
+    return s.status === "PENDING"
+      ? ` (${s.zone.name}, sin iniciar)`
+      : ` (${s.zone.name})`;
+  }
+
   async function handleBulkAssign(zoneId: string) {
-    const shiftId = zonePicks[zoneId];
-    if (!shiftId) return;
+    const driverId = zonePicks[zoneId];
+    if (!driverId) return;
     setBusyZoneKey(zoneId);
     try {
       const data = await api.post<{ assigned: number }>("/api/orders/assign-zone", {
         zoneId,
-        shiftId,
+        driverId,
       });
       toast({ title: `${data.assigned} pedidos asignados`, variant: "success" });
       await loadOrders();
@@ -276,11 +301,11 @@ export default function PedidosPage() {
     }
   }
 
-  async function handleAssign(orderId: string, shiftId: string) {
-    if (!shiftId) return;
+  async function handleAssign(orderId: string, driverId: string) {
+    if (!driverId) return;
     setBusyOrderId(orderId);
     try {
-      await api.post(`/api/orders/${orderId}/assign`, { shiftId });
+      await api.post(`/api/orders/${orderId}/assign`, { driverId });
       toast({ title: "Pedido asignado", variant: "success" });
       await loadOrders();
     } catch (err) {
@@ -529,7 +554,13 @@ export default function PedidosPage() {
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
             {pendingByZone.map((group) => {
-              const matchingShifts = shifts.filter((s) => s.zone.id === group.zoneId);
+              const inZoneDriverIds = new Set(
+                shifts.filter((s) => s.zone.id === group.zoneId).map((s) => s.driver.id),
+              );
+              const sortedDrivers = [...drivers].sort(
+                (a, b) =>
+                  Number(inZoneDriverIds.has(b.id)) - Number(inZoneDriverIds.has(a.id)),
+              );
               return (
                 <div
                   key={group.zoneId}
@@ -556,10 +587,10 @@ export default function PedidosPage() {
                       <option value="" disabled>
                         Elegí un chofer…
                       </option>
-                      {(matchingShifts.length > 0 ? matchingShifts : shifts).map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.driver.fullName} · {s.zone.name}
-                          {s.status === "PENDING" ? " (sin iniciar)" : ""}
+                      {sortedDrivers.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.fullName}
+                          {driverHint(d.id)}
                         </option>
                       ))}
                     </Select>
@@ -645,6 +676,12 @@ export default function PedidosPage() {
                         Zona sugerida: {order.suggestedZoneName}
                       </p>
                     )}
+                    {order.status === "DELIVERED" && order.recipientName && (
+                      <p className="text-text-muted-2 text-xs">
+                        Recibió: {order.recipientName}
+                        {order.recipientDni ? ` (DNI ${order.recipientDni})` : ""}
+                      </p>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Badge variant={STATUS_VARIANT[order.status]}>
@@ -655,19 +692,21 @@ export default function PedidosPage() {
                     <div className="flex items-center gap-2">
                       {(order.status === "PENDING" || order.status === "ASSIGNED") && (
                         <Select
-                          aria-label="Asignar a turno"
+                          aria-label="Asignar a chofer"
                           className="w-36"
-                          value={order.shiftId ?? ""}
+                          value={
+                            shifts.find((s) => s.id === order.shiftId)?.driver.id ?? ""
+                          }
                           disabled={busyOrderId === order.id}
                           onChange={(e) => void handleAssign(order.id, e.target.value)}
                         >
                           <option value="" disabled>
                             Asignar a…
                           </option>
-                          {shifts.map((s) => (
-                            <option key={s.id} value={s.id}>
-                              {s.driver.fullName} · {s.zone.name}
-                              {s.status === "PENDING" ? " (sin iniciar)" : ""}
+                          {drivers.map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {d.fullName}
+                              {driverHint(d.id)}
                             </option>
                           ))}
                         </Select>

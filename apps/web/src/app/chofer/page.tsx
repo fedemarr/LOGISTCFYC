@@ -85,38 +85,55 @@ interface Order {
   status: "PENDING" | "ASSIGNED" | "DELIVERED" | "FAILED" | "CANCELLED";
 }
 
-/** Comprime una imagen (canvas, máx 1600px de lado, JPEG 75%) antes de
- * mandarla en el body del POST — una captura de cámara sin comprimir
- * puede pesar varios MB y pegarle al límite de tamaño de la función
- * serverless. */
-async function compressScreenshot(
-  file: File,
-): Promise<{ base64: string; mimeType: string }> {
-  const bitmap = await createImageBitmap(file);
-  const maxDim = 1600;
-  const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
-  const w = Math.max(1, Math.round(bitmap.width * scale));
-  const h = Math.max(1, Math.round(bitmap.height * scale));
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("no se pudo preparar la imagen");
-  ctx.drawImage(bitmap, 0, 0, w, h);
-  const blob = await new Promise<Blob>((resolve, reject) =>
-    canvas.toBlob(
-      (b) => (b ? resolve(b) : reject(new Error("no se pudo comprimir la imagen"))),
-      "image/jpeg",
-      0.75,
-    ),
-  );
-  const base64 = await new Promise<string>((resolve, reject) => {
+/** Lee un Blob/File como base64 SIN el prefijo `data:...;base64,`. */
+async function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve((reader.result as string).split(",")[1] ?? "");
     reader.onerror = () => reject(reader.error as unknown as Error);
     reader.readAsDataURL(blob);
   });
-  return { base64, mimeType: "image/jpeg" };
+}
+
+const ALLOWED_PHOTO_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+/** Comprime una imagen (canvas, máx 1600px de lado, JPEG 75%) antes de
+ * mandarla en el body del POST — una captura de cámara sin comprimir
+ * puede pesar varios MB y pegarle al límite de tamaño de la función
+ * serverless. Si el navegador no puede decodificarla (reportado por
+ * Fede: "Application error" al sacar la foto de confirmación de
+ * entrega — pasa en algunos Android con HEIC, o si `createImageBitmap`
+ * no está disponible) se manda el archivo tal cual en vez de romper todo
+ * el flujo — pesará más, pero no tira la app. */
+async function compressScreenshot(
+  file: File,
+): Promise<{ base64: string; mimeType: string }> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const maxDim = 1600;
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("no se pudo preparar la imagen");
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    const blob = await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error("no se pudo comprimir la imagen"))),
+        "image/jpeg",
+        0.75,
+      ),
+    );
+    return { base64: await blobToBase64(blob), mimeType: "image/jpeg" };
+  } catch {
+    const mimeType = ALLOWED_PHOTO_MIME_TYPES.includes(file.type)
+      ? file.type
+      : "image/jpeg";
+    return { base64: await blobToBase64(file), mimeType };
+  }
 }
 
 export default function ChoferApp() {
@@ -190,6 +207,10 @@ function ChoferAppInner() {
   const [deliveryEvidenceFile, setDeliveryEvidenceFile] = React.useState<File | null>(
     null,
   );
+  // A quién se le entregó (pedido de Fede: "tenés que marcar a quién se
+  // lo entregás y el DNI") — obligatorio junto con la foto.
+  const [recipientName, setRecipientName] = React.useState("");
+  const [recipientDni, setRecipientDni] = React.useState("");
   const [submittingDelivery, setSubmittingDelivery] = React.useState(false);
 
   // GPS
@@ -572,7 +593,7 @@ function ChoferAppInner() {
   }
 
   async function handleConfirmDelivered(orderId: string) {
-    if (!deliveryEvidenceFile) return;
+    if (!deliveryEvidenceFile || !recipientName.trim() || !recipientDni.trim()) return;
     setSubmittingDelivery(true);
     try {
       const { base64, mimeType } = await compressScreenshot(deliveryEvidenceFile);
@@ -581,6 +602,8 @@ function ChoferAppInner() {
         body: JSON.stringify({
           evidenceBase64: base64,
           evidenceMimeType: mimeType,
+          recipientName: recipientName.trim(),
+          recipientDni: recipientDni.trim(),
         }),
       });
       setOrders((prev) =>
@@ -588,6 +611,8 @@ function ChoferAppInner() {
       );
       setDeliveringOrderId(null);
       setDeliveryEvidenceFile(null);
+      setRecipientName("");
+      setRecipientDni("");
       toast({ title: "Pedido marcado como entregado", variant: "success" });
     } catch (err) {
       toast({ title: errMessage(err), variant: "error" });
@@ -926,6 +951,8 @@ function ChoferAppInner() {
                                   onClick={() => {
                                     setDeliveringOrderId(o.id);
                                     setDeliveryEvidenceFile(null);
+                                    setRecipientName("");
+                                    setRecipientDni("");
                                   }}
                                 >
                                   <Camera className="size-4" /> Marcar entregado
@@ -935,6 +962,31 @@ function ChoferAppInner() {
                           )}
                           {!delivered && deliveringOrderId === o.id && (
                             <div className="flex flex-col gap-2 rounded-md border border-dashed p-2">
+                              <Label
+                                htmlFor={`recipient-name-${o.id}`}
+                                className="text-xs"
+                              >
+                                ¿A quién se lo entregaste?
+                              </Label>
+                              <Input
+                                id={`recipient-name-${o.id}`}
+                                value={recipientName}
+                                onChange={(e) => setRecipientName(e.target.value)}
+                                placeholder="Nombre de quien recibe"
+                              />
+                              <Label
+                                htmlFor={`recipient-dni-${o.id}`}
+                                className="text-xs"
+                              >
+                                DNI de quien recibe
+                              </Label>
+                              <Input
+                                id={`recipient-dni-${o.id}`}
+                                inputMode="numeric"
+                                value={recipientDni}
+                                onChange={(e) => setRecipientDni(e.target.value)}
+                                placeholder="ej. 30123456"
+                              />
                               <Label htmlFor={`evidence-${o.id}`} className="text-xs">
                                 Foto de confirmación (obligatoria)
                               </Label>
@@ -949,7 +1001,12 @@ function ChoferAppInner() {
                                 <Button
                                   type="button"
                                   size="sm"
-                                  disabled={submittingDelivery || !deliveryEvidenceFile}
+                                  disabled={
+                                    submittingDelivery ||
+                                    !deliveryEvidenceFile ||
+                                    !recipientName.trim() ||
+                                    !recipientDni.trim()
+                                  }
                                   onClick={() => void handleConfirmDelivered(o.id)}
                                 >
                                   {submittingDelivery ? "Enviando…" : "Confirmar entrega"}
@@ -962,6 +1019,8 @@ function ChoferAppInner() {
                                   onClick={() => {
                                     setDeliveringOrderId(null);
                                     setDeliveryEvidenceFile(null);
+                                    setRecipientName("");
+                                    setRecipientDni("");
                                   }}
                                 >
                                   Cancelar
