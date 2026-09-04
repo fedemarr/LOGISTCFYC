@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, isNull, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne, or } from "drizzle-orm";
 import { Errors } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import {
@@ -787,7 +787,7 @@ export async function recordLocation(
  * reporte de avance quedó vencido.
  */
 export async function monitoringLive(orgId: string) {
-  const [shifts, locations, alerts, reportRows, orderCounts] = await Promise.all([
+  const [shifts, locations, alerts, reportRows, orderRows] = await Promise.all([
     db
       .select({
         shift: {
@@ -853,17 +853,21 @@ export async function monitoringLive(orgId: string) {
       .orderBy(asc(shiftReports.reportedAt)),
     // Pedidos (Tienda Nube/manuales) por turno — "y después cuando un
     // chofer empiece la ruta en la zona se vea los pedidos que tiene en
-    // el monitoreo" (pedido de Fede), agrupados por estado para el
-    // resumen "X/Y entregados" de cada tarjeta.
+    // el monitoreo, con los puntos en el mapa" (pedido de Fede) — filas
+    // completas (no solo el conteo) para poder pintar cada pedido
+    // geocodificado como pin en `FleetMap`.
     db
       .select({
+        id: storeOrders.id,
         shiftId: storeOrders.shiftId,
         status: storeOrders.status,
-        cnt: count(),
+        orderNumber: storeOrders.orderNumber,
+        customerName: storeOrders.customerName,
+        lat: storeOrders.lat,
+        lng: storeOrders.lng,
       })
       .from(storeOrders)
-      .where(and(eq(storeOrders.orgId, orgId), isNull(storeOrders.deletedAt)))
-      .groupBy(storeOrders.shiftId, storeOrders.status),
+      .where(and(eq(storeOrders.orgId, orgId), isNull(storeOrders.deletedAt))),
   ]);
 
   if (shifts.length === 0) return [];
@@ -875,23 +879,30 @@ export async function monitoringLive(orgId: string) {
   const lastReportByShift = new Map<string, (typeof reportRows)[number]>();
   for (const rep of reportRows) lastReportByShift.set(rep.shiftId, rep);
 
-  const orderCountsByShift = new Map<
+  const orderSummaryByShift = new Map<
     string,
     { total: number; delivered: number; pending: number; failed: number }
   >();
-  for (const row of orderCounts) {
+  const orderPointsByShift = new Map<string, (typeof orderRows)[number][]>();
+  for (const row of orderRows) {
     if (!row.shiftId) continue;
-    const entry = orderCountsByShift.get(row.shiftId) ?? {
+    const summary = orderSummaryByShift.get(row.shiftId) ?? {
       total: 0,
       delivered: 0,
       pending: 0,
       failed: 0,
     };
-    entry.total += row.cnt;
-    if (row.status === "DELIVERED") entry.delivered += row.cnt;
-    else if (row.status === "FAILED") entry.failed += row.cnt;
-    else if (row.status === "ASSIGNED") entry.pending += row.cnt;
-    orderCountsByShift.set(row.shiftId, entry);
+    summary.total += 1;
+    if (row.status === "DELIVERED") summary.delivered += 1;
+    else if (row.status === "FAILED") summary.failed += 1;
+    else if (row.status === "ASSIGNED") summary.pending += 1;
+    orderSummaryByShift.set(row.shiftId, summary);
+
+    if (row.lat != null && row.lng != null) {
+      const points = orderPointsByShift.get(row.shiftId) ?? [];
+      points.push(row);
+      orderPointsByShift.set(row.shiftId, points);
+    }
   }
 
   const now = new Date();
@@ -930,12 +941,23 @@ export async function monitoringLive(orgId: string) {
       openAlert,
       lastReport,
       reportOverdue: lastReport ? isReportOverdue(lastReport.reportedAt, now) : false,
-      orders: orderCountsByShift.get(s.shift.id) ?? {
+      orders: orderSummaryByShift.get(s.shift.id) ?? {
         total: 0,
         delivered: 0,
         pending: 0,
         failed: 0,
       },
+      // Pedidos geocodificados de este turno — pines en el mapa de
+      // /monitoreo (pedido de Fede: "que aparezcan como los puntos en
+      // monitoreo en el mapa").
+      orderPoints: (orderPointsByShift.get(s.shift.id) ?? []).map((o) => ({
+        id: o.id,
+        lat: o.lat as number,
+        lng: o.lng as number,
+        orderNumber: o.orderNumber,
+        customerName: o.customerName,
+        status: o.status,
+      })),
     };
   });
 }

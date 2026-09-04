@@ -19,7 +19,12 @@ import { ErrorState, TableSkeleton } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { FleetMap, type MapZone, type MapDriver } from "@/components/fleet-map";
+import {
+  FleetMap,
+  type MapZone,
+  type MapDriver,
+  type MapOrder,
+} from "@/components/fleet-map";
 
 /**
  * MONITOREO EN VIVO (FYM) — mapa con zonas (geocercas) y posiciones de
@@ -44,6 +49,7 @@ interface LiveDriver {
   lastReport: { packagesDone: number; reportedAt: string; note: string | null } | null;
   reportOverdue: boolean;
   orders: { total: number; delivered: number; pending: number; failed: number };
+  orderPoints: MapOrder[];
 }
 
 interface OrderItem {
@@ -142,6 +148,7 @@ export default function MonitoreoPage() {
       lng: f.lastLocation!.lng,
       outside: f.outside,
     }));
+  const orderPoints: MapOrder[] = fleet.flatMap((f) => f.orderPoints);
 
   return (
     <div className="flex flex-col gap-4">
@@ -172,7 +179,12 @@ export default function MonitoreoPage() {
         ) : loading ? (
           <TableSkeleton rows={3} />
         ) : (
-          <FleetMap zones={zones} drivers={drivers} className="h-full w-full" />
+          <FleetMap
+            zones={zones}
+            drivers={drivers}
+            orders={orderPoints}
+            className="h-full w-full"
+          />
         )}
       </Card>
 

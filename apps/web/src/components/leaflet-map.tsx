@@ -3,29 +3,36 @@
 import * as React from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import type { MapZone, MapDriver } from "./fleet-map";
+import type { MapZone, MapDriver, MapOrder } from "./fleet-map";
 
 const DEFAULT_CENTER: L.LatLngExpression = [-34.9, -64.97];
 const DEFAULT_ZOOM = 6;
 
-function makeIcon(color: string) {
+function makeIcon(color: string, size = 14) {
   return L.divIcon({
     className: "",
-    html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.5)"></div>`,
-    iconSize: [14, 14],
-    iconAnchor: [7, 7],
+    html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.5)"></div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
   });
 }
 
 const INSIDE_ICON = makeIcon("#22c55e");
 const OUTSIDE_ICON = makeIcon("#ef4444");
+// Pines de pedido (más chicos que los de chofer, para distinguirlos de
+// un vistazo): azul = sin entregar, verde = entregado, gris = fallido.
+const ORDER_PENDING_ICON = makeIcon("#3b82f6", 10);
+const ORDER_DELIVERED_ICON = makeIcon("#22c55e", 10);
+const ORDER_FAILED_ICON = makeIcon("#6b7280", 10);
 
 export default function LeafletMap({
   zones,
   drivers,
+  orders,
 }: {
   zones: MapZone[];
   drivers: MapDriver[];
+  orders: MapOrder[];
 }) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const mapRef = React.useRef<L.Map | null>(null);
@@ -82,7 +89,21 @@ export default function LeafletMap({
           }`,
         );
     }
-  }, [zones, drivers]);
+
+    for (const order of orders) {
+      const icon =
+        order.status === "DELIVERED"
+          ? ORDER_DELIVERED_ICON
+          : order.status === "FAILED"
+            ? ORDER_FAILED_ICON
+            : ORDER_PENDING_ICON;
+      L.marker([order.lat, order.lng], { icon })
+        .addTo(layer)
+        .bindPopup(
+          `<strong>#${order.orderNumber}</strong><br/>${order.customerName ?? "sin nombre"}`,
+        );
+    }
+  }, [zones, drivers, orders]);
 
   return (
     <div

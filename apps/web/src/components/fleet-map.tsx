@@ -20,6 +20,18 @@ export interface MapDriver {
   outside: boolean;
 }
 
+/** Pedido geocodificado de un turno en curso — pin en el mapa de
+ * /monitoreo (pedido de Fede: "que aparezcan como los puntos en
+ * monitoreo en el mapa"). */
+export interface MapOrder {
+  id: string;
+  lat: number;
+  lng: number;
+  orderNumber: string;
+  customerName: string | null;
+  status: "PENDING" | "ASSIGNED" | "DELIVERED" | "FAILED" | "CANCELLED";
+}
+
 /**
  * Mapa Leaflet para el monitoreo live. Se carga dinámicamente (ssr:false)
  * porque Leaflet necesita el `window` del navegador — en el server Next lo
@@ -33,15 +45,17 @@ const LeafletMap = dynamic(() => import("./leaflet-map"), {
 export function FleetMap({
   zones,
   drivers,
+  orders,
   className,
 }: {
   zones: MapZone[];
   drivers: MapDriver[];
+  orders?: MapOrder[];
   className?: string;
 }) {
   return (
     <div className={className}>
-      <LeafletMap zones={zones} drivers={drivers} />
+      <LeafletMap zones={zones} drivers={drivers} orders={orders ?? []} />
     </div>
   );
 }
