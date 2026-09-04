@@ -826,7 +826,9 @@ function ChoferAppInner() {
               </div>
               <div className="flex items-center justify-between rounded-md border p-3">
                 <span className="text-text-muted text-sm">Paquetes</span>
-                <span className="font-data text-2xl">{lastPackagesDone ?? 0}</span>
+                <span className="font-data text-2xl">
+                  {lastPackagesDone ?? 0}/{shift.packageCount}
+                </span>
               </div>
               <div className="flex items-center justify-between rounded-md border p-3">
                 <span className="text-text-muted text-sm">GPS</span>
