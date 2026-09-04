@@ -2,7 +2,16 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, CircleDot, Phone, Radio, Truck } from "lucide-react";
+import {
+  AlertTriangle,
+  CircleDot,
+  ChevronDown,
+  ChevronUp,
+  Package,
+  Phone,
+  Radio,
+  Truck,
+} from "lucide-react";
 import { api } from "@/lib/api/client";
 import { createSupabaseClient } from "@/lib/supabase/client";
 import { PageHeader } from "@/components/page-header";
@@ -34,7 +43,25 @@ interface LiveDriver {
   openAlert: { id: string; triggeredAt: string } | null;
   lastReport: { packagesDone: number; reportedAt: string; note: string | null } | null;
   reportOverdue: boolean;
+  orders: { total: number; delivered: number; pending: number; failed: number };
 }
+
+interface OrderItem {
+  id: string;
+  orderNumber: string;
+  customerName: string | null;
+  shippingAddress: string | null;
+  shippingCity: string | null;
+  status: "PENDING" | "ASSIGNED" | "DELIVERED" | "FAILED" | "CANCELLED";
+}
+
+const ORDER_STATUS_LABEL: Record<OrderItem["status"], string> = {
+  PENDING: "Sin asignar",
+  ASSIGNED: "Asignado",
+  DELIVERED: "Entregado",
+  FAILED: "No entregado",
+  CANCELLED: "Cancelado",
+};
 
 export default function MonitoreoPage() {
   const router = useRouter();
@@ -42,6 +69,33 @@ export default function MonitoreoPage() {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<Error | null>(null);
   const [lastUpdate, setLastUpdate] = React.useState<Date | null>(null);
+
+  // Pedidos del turno expandido (pedido de Fede: "cuando un chofer
+  // empiece la ruta en la zona se vea los pedidos que tiene en el
+  // monitoreo") — se cargan al abrir, no de entrada, para no pedir de
+  // más si hay muchos choferes en turno.
+  const [expandedShiftId, setExpandedShiftId] = React.useState<string | null>(null);
+  const [shiftOrders, setShiftOrders] = React.useState<OrderItem[]>([]);
+  const [loadingOrders, setLoadingOrders] = React.useState(false);
+
+  async function toggleOrders(shiftId: string) {
+    if (expandedShiftId === shiftId) {
+      setExpandedShiftId(null);
+      return;
+    }
+    setExpandedShiftId(shiftId);
+    setLoadingOrders(true);
+    try {
+      const data = await api.get<{ orders: OrderItem[] }>(
+        `/api/orders?shiftId=${shiftId}`,
+      );
+      setShiftOrders(data.orders);
+    } catch {
+      setShiftOrders([]);
+    } finally {
+      setLoadingOrders(false);
+    }
+  }
 
   React.useEffect(() => {
     let cancelled = false;
@@ -161,6 +215,21 @@ export default function MonitoreoPage() {
                   {f.openAlert && (
                     <Badge className="bg-amber-500 text-white">alerta abierta</Badge>
                   )}
+                  {f.orders.total > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void toggleOrders(f.shift.id)}
+                    >
+                      <Package className="size-3.5" />
+                      {f.orders.delivered}/{f.orders.total} pedidos
+                      {expandedShiftId === f.shift.id ? (
+                        <ChevronUp className="size-3.5" />
+                      ) : (
+                        <ChevronDown className="size-3.5" />
+                      )}
+                    </Button>
+                  )}
                   {f.driver.phone && (
                     <Button
                       variant="outline"
@@ -172,6 +241,40 @@ export default function MonitoreoPage() {
                   )}
                 </div>
               </div>
+              {expandedShiftId === f.shift.id && (
+                <div className="mt-3 flex flex-col gap-1.5 border-t pt-3">
+                  {loadingOrders ? (
+                    <p className="text-text-muted text-xs">Cargando…</p>
+                  ) : shiftOrders.length === 0 ? (
+                    <p className="text-text-muted text-xs">Sin pedidos asignados.</p>
+                  ) : (
+                    shiftOrders.map((o) => (
+                      <div
+                        key={o.id}
+                        className="flex items-center justify-between gap-2 text-xs"
+                      >
+                        <span className="text-text-muted">
+                          #{o.orderNumber} — {o.customerName ?? "sin nombre"} —{" "}
+                          {[o.shippingAddress, o.shippingCity]
+                            .filter(Boolean)
+                            .join(", ") || "sin dirección"}
+                        </span>
+                        <Badge
+                          variant={
+                            o.status === "DELIVERED"
+                              ? "success"
+                              : o.status === "FAILED"
+                                ? "warning"
+                                : "neutral"
+                          }
+                        >
+                          {ORDER_STATUS_LABEL[o.status]}
+                        </Badge>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
             </Card>
           );
         })}

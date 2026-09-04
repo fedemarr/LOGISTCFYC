@@ -1,10 +1,11 @@
-import { and, asc, desc, eq, isNull, ne, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, ne, or } from "drizzle-orm";
 import { Errors } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import {
   driverShifts,
   driverLocations,
   shiftReports,
+  storeOrders,
   zoneAlerts,
   zones,
   users,
@@ -786,7 +787,7 @@ export async function recordLocation(
  * reporte de avance quedó vencido.
  */
 export async function monitoringLive(orgId: string) {
-  const [shifts, locations, alerts, reportRows] = await Promise.all([
+  const [shifts, locations, alerts, reportRows, orderCounts] = await Promise.all([
     db
       .select({
         shift: {
@@ -850,6 +851,19 @@ export async function monitoringLive(orgId: string) {
       })
       .from(shiftReports)
       .orderBy(asc(shiftReports.reportedAt)),
+    // Pedidos (Tienda Nube/manuales) por turno — "y después cuando un
+    // chofer empiece la ruta en la zona se vea los pedidos que tiene en
+    // el monitoreo" (pedido de Fede), agrupados por estado para el
+    // resumen "X/Y entregados" de cada tarjeta.
+    db
+      .select({
+        shiftId: storeOrders.shiftId,
+        status: storeOrders.status,
+        cnt: count(),
+      })
+      .from(storeOrders)
+      .where(and(eq(storeOrders.orgId, orgId), isNull(storeOrders.deletedAt)))
+      .groupBy(storeOrders.shiftId, storeOrders.status),
   ]);
 
   if (shifts.length === 0) return [];
@@ -860,6 +874,25 @@ export async function monitoringLive(orgId: string) {
   const openAlertByShift = new Map(alerts.map((a) => [a.shiftId, a]));
   const lastReportByShift = new Map<string, (typeof reportRows)[number]>();
   for (const rep of reportRows) lastReportByShift.set(rep.shiftId, rep);
+
+  const orderCountsByShift = new Map<
+    string,
+    { total: number; delivered: number; pending: number; failed: number }
+  >();
+  for (const row of orderCounts) {
+    if (!row.shiftId) continue;
+    const entry = orderCountsByShift.get(row.shiftId) ?? {
+      total: 0,
+      delivered: 0,
+      pending: 0,
+      failed: 0,
+    };
+    entry.total += row.cnt;
+    if (row.status === "DELIVERED") entry.delivered += row.cnt;
+    else if (row.status === "FAILED") entry.failed += row.cnt;
+    else if (row.status === "ASSIGNED") entry.pending += row.cnt;
+    orderCountsByShift.set(row.shiftId, entry);
+  }
 
   const now = new Date();
 
@@ -897,6 +930,12 @@ export async function monitoringLive(orgId: string) {
       openAlert,
       lastReport,
       reportOverdue: lastReport ? isReportOverdue(lastReport.reportedAt, now) : false,
+      orders: orderCountsByShift.get(s.shift.id) ?? {
+        total: 0,
+        delivered: 0,
+        pending: 0,
+        failed: 0,
+      },
     };
   });
 }

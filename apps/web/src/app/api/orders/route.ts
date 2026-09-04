@@ -4,11 +4,14 @@ import { listOrders } from "@/lib/services/orders";
 
 /**
  * PEDIDOS DE TIENDA NUBE (FYM) — staff.
- * GET /api/orders?status=PENDING|ASSIGNED|DELIVERED|FAILED|CANCELLED
+ * GET /api/orders?status=PENDING|ASSIGNED|DELIVERED|FAILED|CANCELLED&shiftId=…
+ * `shiftId` filtra a los pedidos de un turno puntual — lo usa /monitoreo
+ * para mostrar los pedidos de un chofer en curso.
  */
 
 const querySchema = z.object({
   status: z.enum(["PENDING", "ASSIGNED", "DELIVERED", "FAILED", "CANCELLED"]).optional(),
+  shiftId: z.string().uuid().optional(),
 });
 
 export async function GET(request: Request): Promise<Response> {
@@ -17,7 +20,7 @@ export async function GET(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const query = parseQuery(querySchema, url);
 
-    const orders = await listOrders(ctx.orgId, query.status);
+    const orders = await listOrders(ctx.orgId, query.status, query.shiftId);
     return jsonOk({ orders });
   } catch (err) {
     return jsonError(toAppError(err));

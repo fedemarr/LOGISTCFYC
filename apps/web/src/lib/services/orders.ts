@@ -184,7 +184,15 @@ export async function syncOrders(
   return { synced: orders.length, total: orders.length };
 }
 
-export async function listOrders(orgId: string, status?: StoreOrderStatus) {
+/** `shiftId` (pedido de Fede: "cuando un chofer empiece la ruta en la
+ * zona se vea los pedidos que tiene en el monitoreo") filtra a los
+ * pedidos de UN turno puntual — lo usa /monitoreo para mostrar el
+ * detalle de un chofer sin traer los de toda la org. */
+export async function listOrders(
+  orgId: string,
+  status?: StoreOrderStatus,
+  shiftId?: string,
+) {
   return db
     .select({ ...storeOrdersToSelect, suggestedZoneName: zones.name })
     .from(storeOrders)
@@ -194,6 +202,7 @@ export async function listOrders(orgId: string, status?: StoreOrderStatus) {
         eq(storeOrders.orgId, orgId),
         isNull(storeOrders.deletedAt),
         status ? eq(storeOrders.status, status) : undefined,
+        shiftId ? eq(storeOrders.shiftId, shiftId) : undefined,
       ),
     )
     .orderBy(desc(storeOrders.syncedAt));
