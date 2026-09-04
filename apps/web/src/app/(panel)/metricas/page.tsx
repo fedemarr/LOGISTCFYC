@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, ImageOff } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { PageHeader } from "@/components/page-header";
 import { ErrorState, TableSkeleton } from "@/components/states";
@@ -27,7 +27,21 @@ import {
  *    tiempo de entrega, etc, es todo estadística").
  */
 
-type Mode = "daily" | "range";
+type Mode = "daily" | "range" | "deliveries";
+
+interface DeliveryRow {
+  id: string;
+  orderNumber: string;
+  customerName: string | null;
+  shippingAddress: string | null;
+  shippingCity: string | null;
+  deliveredAt: string | null;
+  recipientName: string | null;
+  recipientDni: string | null;
+  evidencePhotoUrl: string | null;
+  driverName: string;
+  shiftDate: string;
+}
 
 interface MetricRow {
   driver: { id: string; fullName: string };
@@ -117,6 +131,13 @@ export default function MetricasPage() {
   const [loadingRange, setLoadingRange] = React.useState(true);
   const [errorRange, setErrorRange] = React.useState<Error | null>(null);
 
+  // Entregas (pedido de Fede: "necesito saber a quién le entregó el
+  // chofer, el DNI y el nombre, por si pasa algo después") — reusa el
+  // mismo rango de fechas que "Rango".
+  const [deliveries, setDeliveries] = React.useState<DeliveryRow[]>([]);
+  const [loadingDeliveries, setLoadingDeliveries] = React.useState(true);
+  const [errorDeliveries, setErrorDeliveries] = React.useState<Error | null>(null);
+
   React.useEffect(() => {
     if (mode !== "daily") return;
     let cancelled = false;
@@ -161,6 +182,28 @@ export default function MetricasPage() {
     };
   }, [mode, from, to]);
 
+  React.useEffect(() => {
+    if (mode !== "deliveries") return;
+    let cancelled = false;
+    api
+      .get<{ deliveries: DeliveryRow[] }>(`/api/metricas/entregas?from=${from}&to=${to}`)
+      .then((data) => {
+        if (cancelled) return;
+        setErrorDeliveries(null);
+        setDeliveries(data.deliveries);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setErrorDeliveries(err instanceof Error ? err : new Error(String(err)));
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDeliveries(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, from, to]);
+
   const summary = range?.summary;
 
   return (
@@ -170,7 +213,9 @@ export default function MetricasPage() {
         description={
           mode === "range"
             ? "Agregado del período: entregados, horas por turno, incidentes y ranking de choferes."
-            : "Cantidad de paquetes con la que salió cada chofer, qué entregó y qué dejó sin repartir."
+            : mode === "daily"
+              ? "Cantidad de paquetes con la que salió cada chofer, qué entregó y qué dejó sin repartir."
+              : "A quién le entregó cada pedido el chofer — nombre, DNI y foto de confirmación, por si hace falta después."
         }
         action={
           <div className="flex items-center gap-2">
@@ -188,6 +233,13 @@ export default function MetricasPage() {
                 onClick={() => setMode("daily")}
               >
                 Diaria
+              </Button>
+              <Button
+                size="sm"
+                variant={mode === "deliveries" ? "default" : "ghost"}
+                onClick={() => setMode("deliveries")}
+              >
+                Entregas
               </Button>
             </div>
             {mode === "daily" ? (
@@ -376,6 +428,80 @@ export default function MetricasPage() {
                       >
                         {row.shift.status === "ACTIVE" ? "en curso" : "cerrado"}
                       </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </Card>
+      )}
+
+      {mode === "deliveries" && (
+        <Card className="overflow-hidden">
+          {loadingDeliveries && !deliveries.length && (
+            <TableSkeleton columns={7} rows={4} />
+          )}
+          {errorDeliveries && (
+            <ErrorState
+              title="No se pudieron cargar las entregas"
+              description={errorDeliveries.message}
+            />
+          )}
+          {!loadingDeliveries && !errorDeliveries && deliveries.length === 0 && (
+            <p className="text-text-muted p-6 text-sm">
+              No hubo entregas en el período seleccionado.
+            </p>
+          )}
+          {!loadingDeliveries && deliveries.length > 0 && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Chofer</TableHead>
+                  <TableHead>Pedido</TableHead>
+                  <TableHead>Dirección</TableHead>
+                  <TableHead>Recibió</TableHead>
+                  <TableHead>DNI</TableHead>
+                  <TableHead>Foto</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {deliveries.map((d) => (
+                  <TableRow key={d.id}>
+                    <TableCell className="text-text-muted">
+                      {d.deliveredAt
+                        ? new Date(d.deliveredAt).toLocaleString("es-AR")
+                        : d.shiftDate}
+                    </TableCell>
+                    <TableCell className="font-medium">{d.driverName}</TableCell>
+                    <TableCell>
+                      #{d.orderNumber}
+                      <p className="text-text-muted text-xs">{d.customerName ?? "—"}</p>
+                    </TableCell>
+                    <TableCell className="text-text-muted">
+                      {[d.shippingAddress, d.shippingCity].filter(Boolean).join(", ") ||
+                        "—"}
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      {d.recipientName ?? "—"}
+                    </TableCell>
+                    <TableCell className="font-data">{d.recipientDni ?? "—"}</TableCell>
+                    <TableCell>
+                      {d.evidencePhotoUrl ? (
+                        <a
+                          href={d.evidencePhotoUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-primary text-sm underline"
+                        >
+                          Ver foto
+                        </a>
+                      ) : (
+                        <span className="text-text-muted flex items-center gap-1 text-xs">
+                          <ImageOff className="size-3.5" /> sin foto
+                        </span>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

@@ -1,9 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte } from "drizzle-orm";
 import { haversineDistanceMeters } from "@fym/geo";
 import { Errors } from "@/lib/api/errors";
 import { db } from "@/lib/db";
-import { driverShifts, storeOrders, storeOrdersToSelect, zones } from "@/lib/db/schema";
+import {
+  driverShifts,
+  storeOrders,
+  storeOrdersToSelect,
+  users,
+  zones,
+} from "@/lib/db/schema";
 import { geocodeText } from "@/lib/services/geocoding";
 import { logDomainEvent } from "@/lib/services/events";
 import {
@@ -206,6 +212,44 @@ export async function listOrders(
       ),
     )
     .orderBy(desc(storeOrders.syncedAt));
+}
+
+/**
+ * Entregas del período — pedido de Fede: "en métricas necesito también
+ * saber a quién le entregó el chofer, la persona, el DNI y el nombre...
+ * por si pasa algo después tener esa info". Un renglón por pedido
+ * DELIVERED, con quién lo recibió (nombre + DNI) y la foto de evidencia
+ * si la hay — filtrado por la fecha del TURNO (mismo criterio que el
+ * resto de /metricas), no por el timestamp exacto de la entrega.
+ */
+export async function listDeliveries(orgId: string, from: string, to: string) {
+  return db
+    .select({
+      id: storeOrders.id,
+      orderNumber: storeOrders.orderNumber,
+      customerName: storeOrders.customerName,
+      shippingAddress: storeOrders.shippingAddress,
+      shippingCity: storeOrders.shippingCity,
+      deliveredAt: storeOrders.deliveredAt,
+      recipientName: storeOrders.recipientName,
+      recipientDni: storeOrders.recipientDni,
+      evidencePhotoPath: storeOrders.evidencePhotoPath,
+      driverName: users.fullName,
+      shiftDate: driverShifts.shiftDate,
+    })
+    .from(storeOrders)
+    .innerJoin(driverShifts, eq(driverShifts.id, storeOrders.shiftId))
+    .innerJoin(users, eq(users.id, driverShifts.driverId))
+    .where(
+      and(
+        eq(storeOrders.orgId, orgId),
+        eq(storeOrders.status, "DELIVERED"),
+        isNull(storeOrders.deletedAt),
+        gte(driverShifts.shiftDate, from),
+        lte(driverShifts.shiftDate, to),
+      ),
+    )
+    .orderBy(desc(storeOrders.deliveredAt));
 }
 
 /** Pedidos asignados a UN turno — lo usa la PWA del chofer para mostrar
